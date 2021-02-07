@@ -1,0 +1,46 @@
+version: '3.7'
+
+services:
+  web:
+    build: .
+    ports:
+      - 80:80
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://root:password@postgres/packstack
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST: localhost
+      POSTGRES_DB: packstack
+      PORT: 80
+      JWT_SECRET: 0839942409BCFFF12C92AF8C66BF5BD06086F423C361D7C36BA8CB2CFBFCD8EF
+      JWT_ALGORITHM: HS256
+
+      MAILCHIMP_API_KEY:
+      STRIPE_SECRET:
+      MAILJET_API_KEY:
+      MAILJET_SECRET_KEY:
+
+    networks:
+      - packstack
+
+  postgres:
+    restart: always
+    image: postgres:11.3-alpine
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: packstack
+    ports:
+      - 5432:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - packstack
+
+networks:
+  packstack:
+
+volumes:
+  pgdata:
