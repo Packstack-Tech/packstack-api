@@ -4,10 +4,12 @@ import jwt
 from random import choice
 
 from passlib.hash import pbkdf2_sha256 as sha256
-from sqlalchemy import create_engine, Boolean, Column, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, Numeric, \
+from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, Numeric, \
     UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, backref
+
+from enums import Plan, UnitSystem, Currency, WeightUnit, Month
 
 JWT_SECRET = os.getenv('JWT_SECRET')
 JWT_ALGORITHM = os.getenv('JWT_ALGORITHM')
@@ -24,23 +26,44 @@ class User(Base):
     email = Column(String, unique=True, nullable=False, index=True)
     password = Column(String, nullable=False)
 
-    active = Column(Boolean, default=False)
-    plan = Column(String)
+    display_name = Column(String(50), default='')
+    avatar_url = Column(String)
+    plan = Column(Enum(Plan), default=Plan.FREE)
+    unit = Column(Enum(UnitSystem), default=UnitSystem.IMPERIAL)
+    currency = Column(Enum(Currency), default=Currency.USD)
     email_verified = Column(Boolean, default=False)
     stripe_customer_id = Column(String)
     stripe_sub_id = Column(String)
+
+    # Social profiles
+    instagram_url = Column(String(100))
+    youtube_url = Column(String(100))
+    twitter_url = Column(String(100))
+    reddit_url = Column(String(100))
+
+    # In case an account needs to be manually banned
+    banned = Column(Boolean, default=False)
+
+    # In case user deactivates their account
+    deactivated = Column(Boolean, default=False)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
     # Relationships
     password_resets = relationship("PasswordReset", backref="user")
+    inventory = relationship("Item", backref="user", lazy="joined")
+    packs = relationship("Pack", backref="user", lazy="joined")
 
     def to_dict(self):
         return {
-            "email": self.email,
-            "active": self.active,
+            "id": self.id,
+            "display_name": self.display_name,
+            "avatar_url": self.avatar_url,
             "plan": self.plan,
+            "unit": self.unit,
+            "currency": self.currency,
+            "banned": self.banned,
             "email_verified": self.email_verified,
         }
 
@@ -59,6 +82,78 @@ class User(Base):
     @staticmethod
     def decode_jwt(token):
         return jwt.decode(token, key=JWT_SECRET, algorithms=[JWT_ALGORITHM], options={"verify_exp": False})
+
+
+class Item(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    brand_id = Column(Integer, ForeignKey("brand.id"))
+    product_id = Column(Integer, ForeignKey("product.id"))
+    removed = Column(Boolean, default=False)
+
+    name = Column(String(100))
+    weight = Column(Numeric, default=0.0)
+    unit = Column(Enum(WeightUnit))
+    price = Column(Numeric, default=0.0)
+    consumable = Column(Boolean, default=False)
+    product_url = Column(String(250))
+    wishlist = Column(Boolean, default=False)
+    notes = Column(String(1000))
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now())
+
+    # Relationships
+    brand = relationship("Brand", backref=backref("item", lazy="joined"))
+    product = relationship("Product", backref=backref("item", lazy="joined"))
+
+
+class Brand(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True)
+
+    products = relationship("Product", backref=backref("brand", lazy="joined"))
+
+
+class Product(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    brand_id = Column(Integer, ForeignKey("brand.id"))
+    name = Column(String(250))
+
+    # Ensure product is unique per brand
+    __table_args__ = (UniqueConstraint('brand_id', 'name', name='_brand_product_uc'),)
+
+
+class Pack(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+
+    title = Column(String(250))
+    image_url = Column(String(1000))
+    month = Column(Enum(Month))
+    year = Column(Integer)
+    days = Column(Integer)
+    temp_min = Column(Integer)
+    temp_max = Column(Integer)
+    notes = Column(String(1000))
+    public = Column(Boolean, default=False)
+    removed = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now())
+
+    # relationships
+    items = relationship("PackItem", backref="pack")
+
+
+class PackItem(Base):
+    pack_id = Column(Integer, ForeignKey("pack.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("item.id"), nullable=False)
+    quantity = Column(Numeric, default=1)
+    worn = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now())
 
 
 class PasswordReset(Base):
