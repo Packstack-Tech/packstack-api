@@ -6,10 +6,10 @@ from random import choice
 from passlib.hash import pbkdf2_sha256 as sha256
 from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, \
     Numeric, UniqueConstraint, select
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.orm import sessionmaker, relationship, backref, column_property
 
-from enums import Plan, UnitSystem, Currency, WeightUnit, Month
+from .enums import Plan, UnitSystem, Currency, WeightUnit, Month
 
 JWT_SECRET = os.getenv('JWT_SECRET')
 JWT_ALGORITHM = os.getenv('JWT_ALGORITHM')
@@ -18,7 +18,14 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base = declarative_base()
+
+class Base(object):
+    @declared_attr
+    def __tablename__(self):
+        return self.__name__.lower()
+
+
+Base = declarative_base(cls=Base)
 
 
 class User(Base):
@@ -156,7 +163,7 @@ class Pack(Base):
 
     # Associated item count queried at load
     item_count = column_property(
-        select(func.count(PackItem.pack_id)).where(PackItem.pack_id == id).correlate_except(PackItem)
+        select([func.count(PackItem.pack_id)]).where(PackItem.pack_id == id).correlate_except(PackItem)
     )
 
     # Relationships

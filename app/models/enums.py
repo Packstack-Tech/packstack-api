@@ -12,7 +12,7 @@ class UnitSystem(enum.Enum):
     METRIC = 2
 
 
-class WeightUnit(enum):
+class WeightUnit(enum.Enum):
     OUNCES = 1
     POUNDS = 2
     GRAMS = 3
