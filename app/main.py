@@ -2,8 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
+from models.base import DATABASE_URL
+
+from api import user
+
 app = FastAPI()
-# app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
+app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,6 +18,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+
+app.include_router(
+    user.route,
+    prefix="/user",
+    tags=["user"],
+    responses={404: {"description": "Not found"}}
 )
 
 

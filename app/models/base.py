@@ -71,7 +71,16 @@ class User(Base):
             "unit": self.unit,
             "currency": self.currency,
             "banned": self.banned,
+            "deactivated": self.deactivated,
             "email_verified": self.email_verified,
+
+            "instagram_url": self.instagram_url,
+            "youtube_url": self.youtube_url,
+            "twitter_url": self.twitter_url,
+            "reddit_url": self.reddit_url,
+
+            "inventory": self.inventory,
+            "packs": self.packs
         }
 
     @staticmethod
