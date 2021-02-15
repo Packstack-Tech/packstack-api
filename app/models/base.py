@@ -4,10 +4,10 @@ import jwt
 from random import choice
 
 from passlib.hash import pbkdf2_sha256 as sha256
-from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, Numeric, \
-    UniqueConstraint
+from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, \
+    Numeric, UniqueConstraint, select
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, backref
+from sqlalchemy.orm import sessionmaker, relationship, backref, column_property
 
 from enums import Plan, UnitSystem, Currency, WeightUnit, Month
 
@@ -124,6 +124,18 @@ class Product(Base):
     __table_args__ = (UniqueConstraint('brand_id', 'name', name='_brand_product_uc'),)
 
 
+class PackItem(Base):
+    pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
+    item_id = Column(Integer, ForeignKey("item.id"), primary_key=True)
+    quantity = Column(Numeric, default=1)
+    worn = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    # Relationship
+    item = relationship("Item")
+
+
 class Pack(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
@@ -142,22 +154,42 @@ class Pack(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
-    # relationships
-    items = relationship("PackItem", backref="pack")
+    # Associated item count queried at load
+    item_count = column_property(
+        select(func.count(PackItem.pack_id)).where(PackItem.pack_id == id).correlate_except(PackItem)
+    )
+
+    # Relationships
+    items = relationship("PackItem")
+    conditions = relationship("PackCondition", lazy="joined")
+    geographies = relationship("PackGeography", lazy="joined")
 
 
-class PackItem(Base):
-    pack_id = Column(Integer, ForeignKey("pack.id"), nullable=False)
-    item_id = Column(Integer, ForeignKey("item.id"), nullable=False)
-    quantity = Column(Numeric, default=1)
-    worn = Column(Boolean, default=False)
+class Condition(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-    updated_at = Column(TIMESTAMP, server_default=func.now())
+
+class Geography(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+
+
+class PackCondition(Base):
+    pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
+    condition_id = Column(Integer, ForeignKey("condition.id"), primary_key=True)
+    condition = relationship("Condition")
+
+
+class PackGeography(Base):
+    pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
+    geography_id = Column(Integer, ForeignKey("geography.id"), primary_key=True)
+    geography = relationship("Geography")
 
 
 class PasswordReset(Base):
-    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
     callback_id = Column(String)
 
     def __init__(self, user_id):
