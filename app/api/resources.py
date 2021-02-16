@@ -10,8 +10,6 @@ route = APIRouter()
 
 @route.get("")
 def fetch():
-
-    # add conditions and geographies
     conditions = db.session.query(Condition).all()
     geographies = db.session.query(Geography).all()
 
