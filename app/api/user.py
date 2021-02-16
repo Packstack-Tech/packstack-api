@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 
@@ -15,7 +15,7 @@ class UserAuth(BaseModel):
 
 
 @route.post("")
-def create(payload: UserAuth):
+def register(payload: UserAuth):
     email = payload.email.strip().lower()
     password = payload.password.strip()
 
@@ -93,3 +93,7 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
 
     return user.to_dict()
 
+
+@route.get("")
+def status(user: User = Depends(authenticate)):
+    return user.to_dict()

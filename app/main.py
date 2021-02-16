@@ -4,7 +4,7 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 
 from models.base import DATABASE_URL
 
-from api import user
+from api import user, resources
 
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
@@ -25,6 +25,14 @@ app.include_router(
     user.route,
     prefix="/user",
     tags=["user"],
+    responses={404: {"description": "Not found"}}
+)
+
+
+app.include_router(
+    resources.route,
+    prefix="/resources",
+    tags=["resources"],
     responses={404: {"description": "Not found"}}
 )
 
