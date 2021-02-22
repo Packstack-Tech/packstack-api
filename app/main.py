@@ -4,7 +4,7 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 
 from models.base import DATABASE_URL
 
-from api import user, resources
+from api import user, resources, item, pack, category
 
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
@@ -37,6 +37,30 @@ app.include_router(
 )
 
 
+app.include_router(
+    item.route,
+    prefix="/item",
+    tags=["item"],
+    responses={404: {"description": "Not found"}}
+)
+
+
+app.include_router(
+    pack.route,
+    prefix="/pack",
+    tags=["pack"],
+    responses={404: {"description": "Not found"}}
+)
+
+
+app.include_router(
+    category.route,
+    prefix="/category",
+    tags=["category"],
+    responses={404: {"description": "Not found"}}
+)
+
+
 @app.get("/health-check")
 def health_check():
-    return "Packstack API is healthy"
+    return "Packstack API is available"

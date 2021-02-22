@@ -7,7 +7,7 @@ from passlib.hash import pbkdf2_sha256 as sha256
 from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, \
     Numeric, UniqueConstraint, select
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
-from sqlalchemy.orm import sessionmaker, relationship, backref, column_property
+from sqlalchemy.orm import sessionmaker, relationship, column_property
 
 from .enums import Plan, UnitSystem, Currency, WeightUnit, Month
 
@@ -59,8 +59,15 @@ class User(Base):
 
     # Relationships
     password_resets = relationship("PasswordReset", backref="user")
-    inventory = relationship("Item", backref="user", lazy="joined")
-    packs = relationship("Pack", backref="user", lazy="joined")
+    inventory = relationship("Item",
+                             lazy="joined",
+                             primaryjoin="and_(User.id == Item.user_id, "
+                                         "Item.removed == False)")
+    packs = relationship("Pack",
+                         backref="user",
+                         lazy="joined",
+                         primaryjoin="and_(User.id == Pack.user_id, "
+                                     "Pack.removed == False)")
 
     def to_dict(self):
         return {
@@ -105,6 +112,7 @@ class Item(Base):
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     brand_id = Column(Integer, ForeignKey("brand.id"))
     product_id = Column(Integer, ForeignKey("product.id"))
+    category_id = Column(Integer, ForeignKey("category.id"))
     removed = Column(Boolean, default=False)
 
     name = Column(String(100))
@@ -120,15 +128,26 @@ class Item(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
     # Relationships
-    brand = relationship("Brand", backref=backref("item", lazy="joined"))
-    product = relationship("Product", backref=backref("item", lazy="joined"))
+    brand = relationship("Brand", lazy="joined")
+    product = relationship("Product", lazy="joined")
+    category = relationship("Category", lazy="joined")
+
+
+class Category(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"))
+    name = Column(String(100), unique=True)
+    consumable = Column(Boolean, default=False)
+
+    # Ensure category is unique per user
+    __table_args__ = (UniqueConstraint('user_id', 'name', name='_user_category_uc'),)
 
 
 class Brand(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True)
 
-    products = relationship("Product", backref=backref("brand", lazy="joined"))
+    products = relationship("Product")
 
 
 class Product(Base):
@@ -149,7 +168,7 @@ class PackItem(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
     # Relationship
-    item = relationship("Item")
+    item = relationship("Item", lazy="joined")
 
 
 class Pack(Base):
@@ -194,13 +213,13 @@ class Geography(Base):
 class PackCondition(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
     condition_id = Column(Integer, ForeignKey("condition.id"), primary_key=True)
-    condition = relationship("Condition")
+    condition = relationship("Condition", lazy="joined")
 
 
 class PackGeography(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
     geography_id = Column(Integer, ForeignKey("geography.id"), primary_key=True)
-    geography = relationship("Geography")
+    geography = relationship("Geography", lazy="joined")
 
 
 class PasswordReset(Base):

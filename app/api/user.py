@@ -95,5 +95,5 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
 
 
 @route.get("")
-def status(user: User = Depends(authenticate)):
+def fetch(user: User = Depends(authenticate)):
     return user.to_dict()

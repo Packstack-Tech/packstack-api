@@ -3,7 +3,7 @@ from fastapi_sqlalchemy import db
 
 from models.base import Condition, Geography
 from models.enums import WeightUnit, Currency, Plan, UnitSystem, Month
-from utils.enums import enum_to_dict
+from utils.utils import enum_to_dict
 
 route = APIRouter()
 
