@@ -71,6 +71,11 @@ class User(Base):
                          primaryjoin="and_(User.id == Pack.user_id, "
                                      "Pack.removed == False)")
 
+    categories = relationship("Category",
+                              lazy="joined",
+                              primaryjoin="or_(User.id == Category.user_id, "
+                                          "Category.user_id == None)")
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -89,7 +94,8 @@ class User(Base):
             "reddit_url": self.reddit_url,
 
             "inventory": self.inventory,
-            "packs": self.packs
+            "packs": self.packs,
+            "categories": self.categories
         }
 
     @staticmethod

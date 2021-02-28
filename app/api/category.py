@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from sqlalchemy import or_
 
 from models.base import User, Category
 from utils.auth import authenticate
@@ -26,3 +27,7 @@ def create(payload: CategoryType, user: User = Depends(authenticate)):
 
     return new_category
 
+
+@route.get("")
+def categories(user: User = Depends(authenticate)):
+    return db.session.query(Category).filter(or_(Category.user_id == user.id, Category.user_id == None)).all()
