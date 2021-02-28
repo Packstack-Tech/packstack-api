@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
+from sqlalchemy.orm import joinedload
 
 from models.base import User, Pack, PackItem, PackGeography, PackCondition
 from models.enums import Month
 from utils.auth import authenticate
+from utils.utils import group_by_category
 
 route = APIRouter()
 
@@ -95,8 +97,15 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     return pack
 
 
+@route.get("/{pack_id}")
+def fetch_one(pack_id):
+    pack = db.session.query(Pack).options(joinedload(Pack.items)).filter_by(id=pack_id).first()
+    pack.categories = pack.items_by_category
+    return pack
+
+
 @route.get("s")
-def fetch(user: User = Depends(authenticate)):
+def fetch_all(user: User = Depends(authenticate)):
     packs = db.session.query(Pack).filter_by(user_id=user.id).all()
     return packs
 
@@ -107,18 +116,28 @@ class PackItemType(BaseModel):
     worn: bool = None
 
 
-class AddItems(BaseModel):
+class AssocItems(BaseModel):
     items: List[PackItemType]
 
 
-@route.post("/{pack_id}/add-items")
-def add_items(pack_id, payload: AddItems, user: User = Depends(authenticate)):
+@route.post("/{pack_id}/items")
+def add_items(pack_id, payload: AssocItems, user: User = Depends(authenticate)):
     pack = db.session.query(Pack).filter_by(id=pack_id, user_id=user.id).first()
 
     if not pack:
         raise HTTPException(400, "An error occurred while retrieving the pack.")
 
-    # todo verify item ownership
+    # Remove existing pack items
+    pack_items = db.session.query(PackItem).filter_by(pack_id=pack.id).all()
+    for item in pack_items:
+        db.session.delete(item)
+
+    try:
+        db.session.commit()
+    except Exception:
+        raise HTTPException(400, "An error occurred while saving pack associations.")
+
+    # Create items in payload
     for item in payload.items:
         assoc_item = PackItem(pack_id=pack.id, **item.dict(exclude_none=True))
         db.session.add(assoc_item)

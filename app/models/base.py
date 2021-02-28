@@ -7,9 +7,11 @@ from passlib.hash import pbkdf2_sha256 as sha256
 from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, \
     Numeric, UniqueConstraint, select
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
 from .enums import Plan, UnitSystem, Currency, WeightUnit, Month
+from utils.utils import group_by_category
 
 JWT_SECRET = os.getenv('JWT_SECRET')
 JWT_ALGORITHM = os.getenv('JWT_ALGORITHM')
@@ -165,8 +167,6 @@ class PackItem(Base):
     quantity = Column(Numeric, default=1)
     worn = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
-
     # Relationship
     item = relationship("Item", lazy="joined")
 
@@ -198,6 +198,13 @@ class Pack(Base):
     items = relationship("PackItem")
     conditions = relationship("PackCondition", lazy="joined")
     geographies = relationship("PackGeography", lazy="joined")
+
+    @hybrid_property
+    def items_by_category(self):
+        if not self.items:
+            return []
+
+        return group_by_category(self.items)
 
 
 class Condition(Base):
