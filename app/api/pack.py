@@ -7,7 +7,6 @@ from sqlalchemy.orm import joinedload
 from models.base import User, Pack, PackItem, PackGeography, PackCondition
 from models.enums import Month
 from utils.auth import authenticate
-from utils.utils import group_by_category
 
 route = APIRouter()
 

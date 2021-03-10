@@ -154,14 +154,16 @@ class Category(Base):
 class Brand(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), unique=True)
+    removed = Column(Boolean, default=False)
 
-    products = relationship("Product")
+    products = relationship("Product", lazy="joined")
 
 
 class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     brand_id = Column(Integer, ForeignKey("brand.id"))
     name = Column(String(250))
+    removed = Column(Boolean, default=False)
 
     # Ensure product is unique per brand
     __table_args__ = (UniqueConstraint('brand_id', 'name', name='_brand_product_uc'),)
