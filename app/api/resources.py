@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from sqlalchemy.orm import joinedload
 
 from models.base import Brand, Condition, Geography, Product, User
 from models.enums import WeightUnit, Currency, Plan, UnitSystem, Month
@@ -55,8 +56,22 @@ def fetch_brands():
 # get brand
 @route.get("/brand/{brand_id}")
 def fetch_brands(brand_id):
-    brand = db.session.query(Brand).filter_by(id=brand_id).first()
+    brand = db.session.query(Brand).options(joinedload(Brand.products)).filter_by(id=brand_id).first()
     return brand
+
+
+@route.get("/brand/search/{search_str}")
+def search_brands(search_str, user: User = Depends(authenticate)):
+    search = "%{}%".format(search_str.strip())
+    brands = db.session.query(Brand).filter(Brand.name.ilike(search)).all()
+    return brands
+
+
+@route.get("/product/search/{brand_id}/{search_str}")
+def search_products(brand_id, search_str, user: User = Depends(authenticate)):
+    search = "%{}%".format(search_str.strip())
+    products = db.session.query(Product).filter(Product.brand_id == brand_id, Product.name.ilike(search)).all()
+    return products
 
 
 class CreateProduct(BaseModel):

@@ -156,7 +156,7 @@ class Brand(Base):
     name = Column(String(100), unique=True)
     removed = Column(Boolean, default=False)
 
-    products = relationship("Product", lazy="joined")
+    products = relationship("Product")
 
 
 class Product(Base):
