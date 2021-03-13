@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
@@ -94,6 +94,9 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
         raise HTTPException(400, "An error occurred while adding pack associations.")
 
     return pack
+
+
+# todo upload pack image
 
 
 @route.get("/{pack_id}")

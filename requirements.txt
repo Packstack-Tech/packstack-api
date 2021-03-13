@@ -3,6 +3,7 @@ requests==2.24.0
 passlib==1.7.2
 
 psycopg2-binary==2.8.5
+boto3==1.17.27
 pydantic==1.5.1
 alembic==1.4.2
 FastAPI-SQLAlchemy==0.1.4
