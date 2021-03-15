@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
@@ -7,13 +7,13 @@ from sqlalchemy.orm import joinedload
 from models.base import User, Pack, PackItem, PackGeography, PackCondition
 from models.enums import Month
 from utils.auth import authenticate
+from utils.aws import s3_file_upload
 
 route = APIRouter()
 
 
 class PackType(BaseModel):
     title: str
-    image_url: str = None
     month: Month = None
     year: int = None
     days: int = None
@@ -96,7 +96,10 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     return pack
 
 
-# todo upload pack image
+@route.post("/upload-image")
+def upload_image(file: UploadFile = File(...), user: User = Depends(authenticate)):
+    saved_file = s3_file_upload(file, user_id=user.id)
+    return saved_file
 
 
 @route.get("/{pack_id}")

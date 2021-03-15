@@ -184,7 +184,6 @@ class Pack(Base):
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
 
     title = Column(String(250))
-    image_url = Column(String(1000))
     month = Column(Enum(Month))
     year = Column(Integer)
     days = Column(Integer)
@@ -206,6 +205,7 @@ class Pack(Base):
     items = relationship("PackItem")
     conditions = relationship("PackCondition", lazy="joined")
     geographies = relationship("PackGeography", lazy="joined")
+    images = relationship("PackImage", lazy="joined")
 
     @hybrid_property
     def items_by_category(self):
@@ -223,6 +223,13 @@ class Condition(Base):
 class Geography(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+
+
+class PackImage(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    pack_id = Column(Integer, ForeignKey("pack.id"))
+    url = Column(String, nullable=False)
 
 
 class PackCondition(Base):
