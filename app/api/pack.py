@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import joinedload
 
-from models.base import User, Pack, PackItem, PackGeography, PackCondition
+from models.base import User, Pack, PackItem, PackImage, PackGeography, PackCondition
 from models.enums import Month
 from utils.auth import authenticate
 from utils.aws import s3_file_upload
@@ -98,8 +98,33 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
 
 @route.post("/upload-image")
 def upload_image(file: UploadFile = File(...), user: User = Depends(authenticate)):
-    saved_file = s3_file_upload(file, user_id=user.id)
-    return saved_file
+    pack_image = PackImage(user_id=user.id)
+
+    try:
+        db.session.add(pack_image)
+        db.session.commit()
+        db.session.refresh(pack_image)
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while creating image object.")
+
+    s3_key = PackImage.generate_s3_key(pack_image, file.filename)
+
+    # todo compress image?
+
+    upload_success = s3_file_upload(file, key=s3_key)
+    if not upload_success:
+        db.session.delete(pack_image)
+        db.session.commit()
+        raise HTTPException(400, "An error occurred while saving image.")
+
+    try:
+        pack_image.url = pack_image.s3_url(s3_key)
+        db.session.commit()
+        db.session.refresh(pack_image)
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while saving image.")
+
+    return pack_image
 
 
 @route.get("/{pack_id}")

@@ -19,6 +19,8 @@ services:
 
       AWS_ACCESS_KEY: AKIA46VHIVDUITVUG2CV
       AWS_SECRET_KEY: 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
+      S3_BUCKET_REGION: us-east-2
+      S3_BUCKET: packstack-user-images-dev
 
       MAILCHIMP_API_KEY:
       STRIPE_SECRET:

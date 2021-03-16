@@ -16,6 +16,8 @@ from utils.utils import group_by_category
 JWT_SECRET = os.getenv('JWT_SECRET')
 JWT_ALGORITHM = os.getenv('JWT_ALGORITHM')
 DATABASE_URL = os.getenv('DATABASE_URL')
+S3_BUCKET = os.getenv('S3_BUCKET')
+S3_BUCKET_REGION = os.getenv('S3_BUCKET_REGION')
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -229,7 +231,17 @@ class PackImage(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     pack_id = Column(Integer, ForeignKey("pack.id"))
-    url = Column(String, nullable=False)
+    url = Column(String)
+
+    # todo URL encode filename
+    # todo figure out better method
+    @staticmethod
+    def generate_s3_key(self, filename):
+        return f'user/{self.user_id}/packImage/{self.id}/{filename.lower()}'
+
+    @staticmethod
+    def s3_url(s3_key):
+        return f'https://{S3_BUCKET}.s3.{S3_BUCKET_REGION}.amazonaws.com/{s3_key}'
 
 
 class PackCondition(Base):
