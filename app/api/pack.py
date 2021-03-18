@@ -103,25 +103,17 @@ def upload_image(file: UploadFile = File(...), user: User = Depends(authenticate
     try:
         db.session.add(pack_image)
         db.session.commit()
+        pack_image.s3 = file.filename
+        db.session.commit()
         db.session.refresh(pack_image)
     except Exception as e:
-        raise HTTPException(400, "An error occurred while creating image object.")
+        raise HTTPException(400, "An error occurred while creating image metadata.")
 
-    s3_key = PackImage.generate_s3_key(pack_image, file.filename)
-
-    # todo compress image?
-
-    upload_success = s3_file_upload(file, key=s3_key)
+    # todo compress image prior to upload?
+    upload_success = s3_file_upload(file, content_type=file.content_type, key=pack_image.s3_key)
     if not upload_success:
         db.session.delete(pack_image)
         db.session.commit()
-        raise HTTPException(400, "An error occurred while saving image.")
-
-    try:
-        pack_image.url = pack_image.s3_url(s3_key)
-        db.session.commit()
-        db.session.refresh(pack_image)
-    except Exception as e:
         raise HTTPException(400, "An error occurred while saving image.")
 
     return pack_image

@@ -231,17 +231,32 @@ class PackImage(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     pack_id = Column(Integer, ForeignKey("pack.id"))
-    url = Column(String)
+    s3_key = Column(String)
+    s3_url = Column(String)
+
+    @hybrid_property
+    def s3(self):
+        return self.s3_key
+
+    @s3.setter
+    def s3(self, filename):
+        disallowed_chars = ['/', ' ']
+        sanitized_filename = ''.join(i for i in filename if i not in disallowed_chars).lower()
+        s3_key = f'user/{self.user_id}/packImage/{self.id}/{sanitized_filename}'
+
+        self.s3_key = s3_key
+        self.s3_url = f'https://{S3_BUCKET}.s3.{S3_BUCKET_REGION}.amazonaws.com/{s3_key}'
+
 
     # todo URL encode filename
     # todo figure out better method
-    @staticmethod
-    def generate_s3_key(self, filename):
-        return f'user/{self.user_id}/packImage/{self.id}/{filename.lower()}'
-
-    @staticmethod
-    def s3_url(s3_key):
-        return f'https://{S3_BUCKET}.s3.{S3_BUCKET_REGION}.amazonaws.com/{s3_key}'
+    # @staticmethod
+    # def generate_s3_key(self, filename):
+    #     return f'user/{self.user_id}/packImage/{self.id}/{filename.lower()}'
+    #
+    # @staticmethod
+    # def s3_url(s3_key):
+    #     return f'https://{S3_BUCKET}.s3.{S3_BUCKET_REGION}.amazonaws.com/{s3_key}'
 
 
 class PackCondition(Base):
