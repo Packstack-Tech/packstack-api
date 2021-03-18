@@ -16,14 +16,11 @@ def s3_file_upload(file, content_type, key, bucket=default_bucket):
     """Upload a file to an S3 bucket
 
     :param file: FastAPI File object
+    :param content_type: String denoting file content type
     :param key: Path-like string defining object location
     :param bucket: Bucket to upload to
     :return: response if file was uploaded, else False
     """
-
-    # todo set image content-type in ExtraArgs
-    # https://stackoverflow.com/questions/4751360/amazon-s3-image-downloading-instead-of-displaying-in-browser
-    # https://fastapi.tiangolo.com/tutorial/request-files/
 
     try:
         s3_client.upload_fileobj(file.file,

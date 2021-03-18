@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import joinedload
 
-from models.base import User, Pack, PackItem, PackImage, PackGeography, PackCondition
+from models.base import User, Pack, PackItem, Image, PackGeography, PackCondition
 from models.enums import Month
 from utils.auth import authenticate
 from utils.aws import s3_file_upload
@@ -98,12 +98,12 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
 
 @route.post("/upload-image")
 def upload_image(file: UploadFile = File(...), user: User = Depends(authenticate)):
-    pack_image = PackImage(user_id=user.id)
+    pack_image = Image(user_id=user.id)
 
     try:
         db.session.add(pack_image)
         db.session.commit()
-        pack_image.s3 = file.filename
+        pack_image.s3 = {'filename': file.filename, 'entity': 'pack'}
         db.session.commit()
         db.session.refresh(pack_image)
     except Exception as e:

@@ -207,7 +207,7 @@ class Pack(Base):
     items = relationship("PackItem")
     conditions = relationship("PackCondition", lazy="joined")
     geographies = relationship("PackGeography", lazy="joined")
-    images = relationship("PackImage", lazy="joined")
+    images = relationship("Image", lazy="joined")
 
     @hybrid_property
     def items_by_category(self):
@@ -227,10 +227,11 @@ class Geography(Base):
     name = Column(String, nullable=False)
 
 
-class PackImage(Base):
+class Image(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     pack_id = Column(Integer, ForeignKey("pack.id"))
+    item_id = Column(Integer, ForeignKey("item.id"))
     s3_key = Column(String)
     s3_url = Column(String)
 
@@ -239,24 +240,15 @@ class PackImage(Base):
         return self.s3_key
 
     @s3.setter
-    def s3(self, filename):
+    def s3(self, metadata):
+        entity = metadata['entity']
+        filename = metadata['filename']
         disallowed_chars = ['/', ' ']
         sanitized_filename = ''.join(i for i in filename if i not in disallowed_chars).lower()
-        s3_key = f'user/{self.user_id}/packImage/{self.id}/{sanitized_filename}'
+        s3_key = f'user/{self.user_id}/{entity}/{self.id}/{sanitized_filename}'
 
         self.s3_key = s3_key
         self.s3_url = f'https://{S3_BUCKET}.s3.{S3_BUCKET_REGION}.amazonaws.com/{s3_key}'
-
-
-    # todo URL encode filename
-    # todo figure out better method
-    # @staticmethod
-    # def generate_s3_key(self, filename):
-    #     return f'user/{self.user_id}/packImage/{self.id}/{filename.lower()}'
-    #
-    # @staticmethod
-    # def s3_url(s3_key):
-    #     return f'https://{S3_BUCKET}.s3.{S3_BUCKET_REGION}.amazonaws.com/{s3_key}'
 
 
 class PackCondition(Base):

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 
-from models.base import User
+from models.base import User, Image
 from models.enums import WeightUnit, Currency
 from utils.auth import authenticate
+from utils.aws import s3_file_upload
 
 route = APIRouter()
 
@@ -92,6 +93,33 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
         print(e)
 
     return user.to_dict()
+
+
+@route.post("/avatar")
+def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticate)):
+    avatar = Image(user_id=user.id)
+
+    try:
+        db.session.add(avatar)
+        db.session.commit()
+        avatar.s3 = {'filename': file.filename, 'entity': 'avatar'}
+        db.session.commit()
+        db.session.refresh(avatar)
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while creating image metadata.")
+
+    upload_success = s3_file_upload(file, content_type=file.content_type, key=avatar.s3_key)
+    if not upload_success:
+        db.session.delete(avatar)
+        db.session.commit()
+        raise HTTPException(400, "An error occurred while saving avatar.")
+
+    # save new avatar as user default
+    user.avatar_url = avatar.s3_url
+    db.session.commit()
+    db.session.refresh(user)
+
+    return user
 
 
 @route.get("")
