@@ -1,6 +1,9 @@
+import csv
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from models.base import Brand, Condition, Geography, Product, User
@@ -92,3 +95,19 @@ def create_brand(payload: CreateProduct, user: User = Depends(authenticate)):
         raise HTTPException(400, 'An error occurred while creating product.')
 
     return new_product
+
+
+# DEVELOPMENT :: SEED DATABASE
+@route.get("/seed")
+def seed_data():
+    with open('seed/brands.csv', newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        for row in reader:
+            brand = Brand(name=row[0])
+            try:
+                db.session.add(brand)
+                db.session.commit()
+            except IntegrityError as e:
+                db.session.rollback()
+
+    return
