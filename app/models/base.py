@@ -2,7 +2,6 @@ import datetime
 import os
 import jwt
 from random import choice
-from iso4217 import Currency
 
 from passlib.hash import pbkdf2_sha256 as sha256
 from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, \
@@ -11,7 +10,7 @@ from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
-from .enums import Plan, UnitSystem, WeightUnit, Month
+from .enums import Currency, Plan, UnitSystem, WeightUnit, Month
 from utils.utils import group_by_category
 
 JWT_SECRET = os.getenv('JWT_SECRET')
@@ -42,7 +41,7 @@ class User(Base):
     avatar_url = Column(String)
     plan = Column(Enum(Plan), default=Plan.FREE)
     unit = Column(Enum(UnitSystem), default=UnitSystem.IMPERIAL)
-    currency = Column(Enum(Currency), default=Currency.usd)
+    currency = Column(Enum(Currency), default=Currency.USD)
     email_verified = Column(Boolean, default=False)
     stripe_customer_id = Column(String)
     stripe_sub_id = Column(String)

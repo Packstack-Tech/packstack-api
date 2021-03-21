@@ -1,10 +1,9 @@
-from iso4217 import Currency
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 
 from models.base import User, Image
-from models.enums import WeightUnit
+from models.enums import WeightUnit, Currency
 from utils.auth import authenticate
 from utils.aws import s3_file_upload
 
