@@ -1,4 +1,5 @@
 import csv
+from iso4217 import Currency
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
@@ -7,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from models.base import Brand, Condition, Geography, Product, User
-from models.enums import WeightUnit, Currency, Plan, UnitSystem, Month
+from models.enums import WeightUnit, Plan, UnitSystem, Month
 from utils.utils import enum_to_dict
 from utils.auth import authenticate
 

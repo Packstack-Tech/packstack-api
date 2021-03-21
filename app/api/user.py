@@ -1,9 +1,10 @@
+from iso4217 import Currency
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 
 from models.base import User, Image
-from models.enums import WeightUnit, Currency
+from models.enums import WeightUnit
 from utils.auth import authenticate
 from utils.aws import s3_file_upload
 
@@ -56,7 +57,6 @@ def login(payload: UserAuth):
     if not user:
         raise HTTPException(status_code=400, detail="Account does not exist.")
 
-    # Verify password
     valid_password = User.verify_hash(payload.password, user.password)
     if not valid_password:
         raise HTTPException(status_code=400, detail="Password is incorrect.")

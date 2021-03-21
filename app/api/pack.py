@@ -23,13 +23,17 @@ class PackType(BaseModel):
     public: bool = None
     removed: bool = None
 
+    image_id: int = None
+
     condition_ids: List[int] = None
     geography_ids: List[int] = None
 
 
 @route.post("")
 def create(payload: PackType, user: User = Depends(authenticate)):
-    new_pack = Pack(user_id=user.id, **payload.dict(exclude_none=True))
+    pack = payload.dict(exclude_none=True)
+    image_id = pack.pop('image_id', None)
+    new_pack = Pack(user_id=user.id, **pack)
 
     try:
         db.session.add(new_pack)
@@ -37,6 +41,16 @@ def create(payload: PackType, user: User = Depends(authenticate)):
         db.session.refresh(new_pack)
     except:
         raise HTTPException(400, "Unable to create pack.")
+
+    if image_id:
+        pack_image = db.session.query(Image).filter_by(id=image_id).first()
+        if pack_image:
+            try:
+                pack_image.pack_id = new_pack.id
+                db.session.commit()
+                db.session.refresh(new_pack)
+            except Exception as e:
+                print(e)
 
     return new_pack
 
@@ -56,12 +70,14 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     fields = payload.dict(exclude_none=True)
     condition_ids = fields.pop('condition_ids', None)
     geography_ids = fields.pop('geography_ids', None)
+    image_id = fields.pop('image_id', None)
 
     for key, value in fields.items():
         setattr(pack, key, value)
 
     try:
         db.session.commit()
+        db.session.refresh(pack)
     except Exception as e:
         raise HTTPException(400, "An error occurred while updating pack.")
 
@@ -87,11 +103,20 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
             assoc_geography = PackGeography(pack_id=pack.id, geography_id=geography)
             db.session.add(assoc_geography)
 
-    try:
-        db.session.commit()
-        db.session.refresh(pack)
-    except Exception as e:
-        raise HTTPException(400, "An error occurred while adding pack associations.")
+    if image_id:
+        pack_image = db.session.query(Image).filter_by(id=image_id).first()
+        if pack_image:
+            try:
+                pack_image.pack_id = pack.id
+            except Exception as e:
+                print(e)
+
+    if condition_ids or geography_ids or image_id:
+        try:
+            db.session.commit()
+            db.session.refresh(pack)
+        except Exception as e:
+            raise HTTPException(400, "An error occurred while adding pack associations.")
 
     return pack
 
