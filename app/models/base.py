@@ -1,5 +1,4 @@
 import datetime
-import os
 import jwt
 from random import choice
 
@@ -10,14 +9,9 @@ from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
+from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, S3_BUCKET, S3_BUCKET_REGION
 from .enums import Currency, Plan, UnitSystem, WeightUnit, Month
 from utils.utils import group_by_category
-
-JWT_SECRET = os.getenv('JWT_SECRET')
-JWT_ALGORITHM = os.getenv('JWT_ALGORITHM')
-DATABASE_URL = os.getenv('DATABASE_URL')
-S3_BUCKET = os.getenv('S3_BUCKET')
-S3_BUCKET_REGION = os.getenv('S3_BUCKET_REGION')
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -277,5 +271,6 @@ class PasswordReset(Base):
         return ''.join(choice('0123456789ABCDEF') for i in range(16))
 
 
-# create database tables if not present
+# Create database tables if not present
+# Comment out when working with configured databases
 Base.metadata.create_all(engine)
