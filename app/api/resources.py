@@ -57,7 +57,7 @@ def fetch_brands():
 
 
 @route.get("/brand/{brand_id}")
-def fetch_brands(brand_id):
+def fetch_brand(brand_id):
     brand = db.session.query(Brand).options(joinedload(Brand.products)).filter_by(id=brand_id).first()
     return brand
 
