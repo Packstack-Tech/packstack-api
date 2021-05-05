@@ -8,10 +8,10 @@ services:
     depends_on:
       - postgres
     environment:
-      DATABASE_URL: postgresql://root:password@postgres/packstack
       POSTGRES_USER: root
       POSTGRES_PASSWORD: password
-      POSTGRES_HOST: localhost
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       POSTGRES_DB: packstack
       JWT_SECRET: 0839942409BCFFF12C92AF8C66BF5BD06086F423C361D7C36BA8CB2CFBFCD8EF
       JWT_ALGORITHM: HS256
