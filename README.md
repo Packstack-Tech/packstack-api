@@ -1,12 +1,12 @@
 # Packstack API
-Packstack API server for the mobile app
+Packstack API server
 
-### Switch k8s context
-- View available contexts: `kubectl config get-contexts`
-- Switch to context: `kubectl config use-context [name]`
+### Run server locally
+- `docker-compose up --build`
 
-### Connect to local k8s database
-- Locate Postgres pod name: `kubectl get pods`
-- Forward port: `kubectl port-forward pod/postgres-pod-name 5432:5432`
-- Access database through `localhost:5432`
+### Apply a migration locally
+- Make sure the database is up and available
+- From `/app`, run `. ./migrate.local.sh`
+- Enter commit message and hit enter
+- NOTE: You may need to `pip install -r requirements.txt`
 

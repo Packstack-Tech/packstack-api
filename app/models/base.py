@@ -42,9 +42,9 @@ class User(Base):
 
     # Social profiles
     instagram_url = Column(String(100))
+    facebook_url = Column(String(100))
     youtube_url = Column(String(100))
     twitter_url = Column(String(100))
-    reddit_url = Column(String(100))
 
     # In case an account needs to be manually banned
     banned = Column(Boolean, default=False)
