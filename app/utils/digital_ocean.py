@@ -1,19 +1,19 @@
 import os
 import boto3
 from botocore.exceptions import ClientError
-
-default_bucket = os.getenv('S3_BUCKET')
+from consts import DO_REGION, DO_SPACES_KEY, DO_SPACES_SECRET_KEY, DO_BUCKET
 
 s3_client = boto3.client(
     's3',
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_KEY'),
-    region_name=os.getenv('S3_BUCKET_REGION')
+    endpoint_url='https://nyc3.digitaloceanspaces.com',
+    aws_access_key_id=DO_SPACES_KEY,
+    aws_secret_access_key=DO_SPACES_SECRET_KEY,
+    region_name=DO_REGION
 )
 
 
-def s3_file_upload(file, content_type, key, bucket=default_bucket):
-    """Upload a file to an S3 bucket
+def s3_file_upload(file, content_type, key, bucket=DO_BUCKET):
+    """Upload a file to an Digital Ocean bucket
 
     :param file: FastAPI File object
     :param content_type: String denoting file content type

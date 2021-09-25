@@ -10,6 +10,7 @@ from models.base import Brand, Condition, Geography, Product, User
 from models.enums import Currency, WeightUnit, Plan, UnitSystem, Month
 from utils.utils import enum_to_dict
 from utils.auth import authenticate
+from utils.digital_ocean import s3_client
 
 route = APIRouter()
 
@@ -28,6 +29,14 @@ def fetch():
         "unitSystem": enum_to_dict(UnitSystem),
         "weightUnits": enum_to_dict(WeightUnit)
     }
+
+
+@route.get("/buckets")
+def fetch_buckets():
+    # List all buckets on your account.
+    response = s3_client.list_buckets()
+    spaces = [space['Name'] for space in response['Buckets']]
+    print("Spaces List: %s" % spaces)
 
 
 class CreateBrand(BaseModel):
@@ -58,7 +67,8 @@ def fetch_brands():
 
 @route.get("/brand/{brand_id}")
 def fetch_brand(brand_id):
-    brand = db.session.query(Brand).options(joinedload(Brand.products)).filter_by(id=brand_id).first()
+    brand = db.session.query(Brand).options(joinedload(
+        Brand.products)).filter_by(id=brand_id).first()
     return brand
 
 
@@ -72,7 +82,8 @@ def search_brands(search_str, user: User = Depends(authenticate)):
 @route.get("/product/search/{brand_id}/{search_str}")
 def search_products(brand_id, search_str, user: User = Depends(authenticate)):
     search = "%{}%".format(search_str.strip())
-    products = db.session.query(Product).filter(Product.brand_id == brand_id, Product.name.ilike(search)).all()
+    products = db.session.query(Product).filter(
+        Product.brand_id == brand_id, Product.name.ilike(search)).all()
     return products
 
 

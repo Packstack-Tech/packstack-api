@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from models.base import User, Image
 from models.enums import WeightUnit, Currency
 from utils.auth import authenticate
-from utils.aws import s3_file_upload
+from utils.digital_ocean import s3_file_upload
 
 route = APIRouter()
 

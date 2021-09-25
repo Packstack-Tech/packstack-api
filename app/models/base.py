@@ -9,7 +9,7 @@ from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
-from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, S3_BUCKET, S3_BUCKET_REGION
+from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION
 from .enums import Currency, Plan, UnitSystem, WeightUnit, Month
 from utils.utils import group_by_category
 
@@ -32,7 +32,6 @@ class User(Base):
     password = Column(String, nullable=False)
 
     display_name = Column(String(50), default='')
-    avatar_url = Column(String)
     plan = Column(Enum(Plan), default=Plan.FREE)
     unit = Column(Enum(UnitSystem), default=UnitSystem.IMPERIAL)
     currency = Column(Enum(Currency), default=Currency.USD)
@@ -45,6 +44,7 @@ class User(Base):
     facebook_url = Column(String(100))
     youtube_url = Column(String(100))
     twitter_url = Column(String(100))
+    # add website_url
 
     # In case an account needs to be manually banned
     banned = Column(Boolean, default=False)
@@ -52,11 +52,19 @@ class User(Base):
     # In case user deactivates their account
     deactivated = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
     # Relationships
     password_resets = relationship("PasswordReset", backref="user")
+
+    avatar = relationship("Image",
+                          lazy="joined",
+                          primaryjoin="and_(User.id == Image.user_id, "
+                          "Image.avatar == True)",
+                          uselist=False)
+
     inventory = relationship("Item",
                              lazy="joined",
                              primaryjoin="and_(User.id == Item.user_id, "
@@ -76,7 +84,7 @@ class User(Base):
         return {
             "id": self.id,
             "display_name": self.display_name,
-            "avatar_url": self.avatar_url,
+            "avatar": self.avatar,
             "plan": self.plan,
             "unit": self.unit,
             "currency": self.currency,
@@ -87,7 +95,7 @@ class User(Base):
             "instagram_url": self.instagram_url,
             "youtube_url": self.youtube_url,
             "twitter_url": self.twitter_url,
-            "reddit_url": self.reddit_url,
+            "facebook_url": self.facebook_url,
 
             "inventory": self.inventory,
             "packs": self.packs,
@@ -128,7 +136,8 @@ class Item(Base):
     wishlist = Column(Boolean, default=False)
     notes = Column(String(1000))
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
     # Relationships
@@ -144,7 +153,8 @@ class Category(Base):
     consumable = Column(Boolean, default=False)
 
     # Ensure category is unique per user
-    __table_args__ = (UniqueConstraint('user_id', 'name', name='_user_category_uc'),)
+    __table_args__ = (UniqueConstraint(
+        'user_id', 'name', name='_user_category_uc'),)
 
 
 class Brand(Base):
@@ -162,7 +172,8 @@ class Product(Base):
     removed = Column(Boolean, default=False)
 
     # Ensure product is unique per brand
-    __table_args__ = (UniqueConstraint('brand_id', 'name', name='_brand_product_uc'),)
+    __table_args__ = (UniqueConstraint(
+        'brand_id', 'name', name='_brand_product_uc'),)
 
 
 class PackItem(Base):
@@ -189,12 +200,14 @@ class Pack(Base):
     public = Column(Boolean, default=False)
     removed = Column(Boolean, default=False)
 
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
     # Associated item count queried at load
     item_count = column_property(
-        select([func.count(PackItem.pack_id)]).where(PackItem.pack_id == id).correlate_except(PackItem)
+        select([func.count(PackItem.pack_id)]).where(
+            PackItem.pack_id == id).correlate_except(PackItem)
     )
 
     # Relationships
@@ -224,6 +237,8 @@ class Geography(Base):
 class Image(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    avatar = Column(Boolean, default=False)
+
     pack_id = Column(Integer, ForeignKey("pack.id"))
     item_id = Column(Integer, ForeignKey("item.id"))
     s3_key = Column(String)
@@ -235,25 +250,29 @@ class Image(Base):
 
     @s3.setter
     def s3(self, metadata):
-        entity = metadata['entity']
+        entity = metadata['entity']  # pack, image or avatar
         filename = metadata['filename']
         disallowed_chars = ['/', ' ']
-        sanitized_filename = ''.join(i for i in filename if i not in disallowed_chars).lower()
-        s3_key = f'user/{self.user_id}/{entity}/{self.id}/{sanitized_filename}'
+        sanitized_filename = ''.join(
+            i for i in filename if i not in disallowed_chars).lower()
+        entity_id = '' if self.avatar else f'/{self.pack_id}' or f'/{self.item_id}'
+        s3_key = f'user/{self.user_id}/{entity}{entity_id}/{sanitized_filename}'
 
         self.s3_key = s3_key
-        self.s3_url = f'https://{S3_BUCKET}.s3.{S3_BUCKET_REGION}.amazonaws.com/{s3_key}'
+        self.s3_url = f'https://{DO_BUCKET}.{DO_REGION}.digitaloceanspaces.com/{s3_key}'
 
 
 class PackCondition(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
-    condition_id = Column(Integer, ForeignKey("condition.id"), primary_key=True)
+    condition_id = Column(Integer, ForeignKey(
+        "condition.id"), primary_key=True)
     condition = relationship("Condition", lazy="joined")
 
 
 class PackGeography(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
-    geography_id = Column(Integer, ForeignKey("geography.id"), primary_key=True)
+    geography_id = Column(Integer, ForeignKey(
+        "geography.id"), primary_key=True)
     geography = relationship("Geography", lazy="joined")
 
 

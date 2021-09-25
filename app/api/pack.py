@@ -7,7 +7,7 @@ from sqlalchemy.orm import joinedload
 from models.base import User, Pack, PackItem, Image, PackGeography, PackCondition
 from models.enums import Month
 from utils.auth import authenticate
-from utils.aws import s3_file_upload
+from utils.digital_ocean import s3_file_upload
 
 route = APIRouter()
 
@@ -62,7 +62,8 @@ class PackUpdate(PackType):
 
 @route.put("")
 def update(payload: PackUpdate, user: User = Depends(authenticate)):
-    pack = db.session.query(Pack).filter_by(id=payload.id, user_id=user.id).first()
+    pack = db.session.query(Pack).filter_by(
+        id=payload.id, user_id=user.id).first()
 
     if not pack:
         raise HTTPException(400, "Pack not found.")
@@ -89,7 +90,8 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
                 condition_ids.remove(condition.condition_id)
 
         for condition in condition_ids:
-            assoc_condition = PackCondition(pack_id=pack.id, condition_id=condition)
+            assoc_condition = PackCondition(
+                pack_id=pack.id, condition_id=condition)
             db.session.add(assoc_condition)
 
     if geography_ids:
@@ -100,7 +102,8 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
                 geography_ids.remove(geography.geography_id)
 
         for geography in geography_ids:
-            assoc_geography = PackGeography(pack_id=pack.id, geography_id=geography)
+            assoc_geography = PackGeography(
+                pack_id=pack.id, geography_id=geography)
             db.session.add(assoc_geography)
 
     if image_id:
@@ -116,14 +119,15 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
             db.session.commit()
             db.session.refresh(pack)
         except Exception as e:
-            raise HTTPException(400, "An error occurred while adding pack associations.")
+            raise HTTPException(
+                400, "An error occurred while adding pack associations.")
 
     return pack
 
 
-@route.post("/upload-image")
-def upload_image(file: UploadFile = File(...), user: User = Depends(authenticate)):
-    pack_image = Image(user_id=user.id)
+@route.post("/{pack_id}/upload-image")
+def upload_image(pack_id, file: UploadFile = File(...), user: User = Depends(authenticate)):
+    pack_image = Image(user_id=user.id, pack_id=pack_id)
 
     try:
         db.session.add(pack_image)
@@ -132,10 +136,12 @@ def upload_image(file: UploadFile = File(...), user: User = Depends(authenticate
         db.session.commit()
         db.session.refresh(pack_image)
     except Exception as e:
-        raise HTTPException(400, "An error occurred while creating image metadata.")
+        raise HTTPException(
+            400, "An error occurred while creating image metadata.")
 
     # todo compress image prior to upload?
-    upload_success = s3_file_upload(file, content_type=file.content_type, key=pack_image.s3_key)
+    upload_success = s3_file_upload(
+        file, content_type=file.content_type, key=pack_image.s3_key)
     if not upload_success:
         db.session.delete(pack_image)
         db.session.commit()
@@ -146,7 +152,8 @@ def upload_image(file: UploadFile = File(...), user: User = Depends(authenticate
 
 @route.get("/{pack_id}")
 def fetch_one(pack_id):
-    pack = db.session.query(Pack).options(joinedload(Pack.items)).filter_by(id=pack_id).first()
+    pack = db.session.query(Pack).options(
+        joinedload(Pack.items)).filter_by(id=pack_id).first()
     pack.categories = pack.items_by_category
     return pack
 
@@ -169,10 +176,12 @@ class AssocItems(BaseModel):
 
 @route.post("/{pack_id}/items")
 def add_items(pack_id, payload: AssocItems, user: User = Depends(authenticate)):
-    pack = db.session.query(Pack).filter_by(id=pack_id, user_id=user.id).first()
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
 
     if not pack:
-        raise HTTPException(400, "An error occurred while retrieving the pack.")
+        raise HTTPException(
+            400, "An error occurred while retrieving the pack.")
 
     # Remove existing pack items
     pack_items = db.session.query(PackItem).filter_by(pack_id=pack.id).all()
@@ -182,7 +191,8 @@ def add_items(pack_id, payload: AssocItems, user: User = Depends(authenticate)):
     try:
         db.session.commit()
     except Exception:
-        raise HTTPException(400, "An error occurred while saving pack associations.")
+        raise HTTPException(
+            400, "An error occurred while saving pack associations.")
 
     # Create items in payload
     for item in payload.items:
@@ -193,14 +203,16 @@ def add_items(pack_id, payload: AssocItems, user: User = Depends(authenticate)):
         db.session.commit()
         db.session.refresh(pack)
     except Exception as e:
-        raise HTTPException(400, "An error occurred while adding pack associations.")
+        raise HTTPException(
+            400, "An error occurred while adding pack associations.")
 
     return pack
 
 
 @route.delete("/{pack_id}")
 def remove(pack_id, user: User = Depends(authenticate)):
-    pack = db.session.query(Pack).filter_by(id=pack_id, user_id=user.id).first()
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
     pack.removed = True
 
     db.session.commit()
