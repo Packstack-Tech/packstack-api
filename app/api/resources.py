@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from models.base import Brand, Condition, Geography, Product, User
-from models.enums import Currency, WeightUnit, Plan, UnitSystem, Month
+from models.enums import Currency, WeightUnit, Plan, UnitSystem
 from utils.utils import enum_to_dict
 from utils.auth import authenticate
 from utils.digital_ocean import s3_client
@@ -25,7 +25,6 @@ def fetch():
         "currencies": enum_to_dict(Currency),
         "geographies": geographies,
         "plans": enum_to_dict(Plan),
-        "months": enum_to_dict(Month),
         "unitSystem": enum_to_dict(UnitSystem),
         "weightUnits": enum_to_dict(WeightUnit)
     }

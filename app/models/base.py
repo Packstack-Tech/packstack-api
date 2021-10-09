@@ -3,14 +3,14 @@ import jwt
 from random import choice
 
 from passlib.hash import pbkdf2_sha256 as sha256
-from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, String, DateTime, TIMESTAMP, func, \
+from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, DATE, String, DateTime, TIMESTAMP, func, \
     Numeric, UniqueConstraint, select
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
 from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION
-from .enums import Currency, Plan, UnitSystem, WeightUnit, Month
+from .enums import UnitSystem, WeightUnit
 from utils.utils import group_by_category
 
 engine = create_engine(DATABASE_URL)
@@ -30,21 +30,22 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, nullable=False, index=True)
     password = Column(String, nullable=False)
-
-    display_name = Column(String(50), default='')
-    plan = Column(Enum(Plan), default=Plan.FREE)
-    unit = Column(Enum(UnitSystem), default=UnitSystem.IMPERIAL)
-    currency = Column(Enum(Currency), default=Currency.USD)
     email_verified = Column(Boolean, default=False)
+
     stripe_customer_id = Column(String)
     stripe_sub_id = Column(String)
 
+    display_name = Column(String(50), nullable=False)
+    unit = Column(Enum(UnitSystem), default=UnitSystem.IMPERIAL)
+    bio = Column(String(500))
+
     # Social profiles
-    instagram_url = Column(String(100))
-    facebook_url = Column(String(100))
-    youtube_url = Column(String(100))
-    twitter_url = Column(String(100))
-    # add website_url
+    instagram_url = Column(String(500))
+    facebook_url = Column(String(500))
+    youtube_url = Column(String(500))
+    twitter_url = Column(String(500))
+    snap_url = Column(String(500))
+    personal_url = Column(String(500))
 
     # In case an account needs to be manually banned
     banned = Column(Boolean, default=False)
@@ -186,17 +187,35 @@ class PackItem(Base):
     item = relationship("Item", lazy="joined")
 
 
+class Post(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    notes = Column(String(2500), nullable=False)
+    removed = Column(Boolean, default=False)
+
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now())
+
+    # Relationships
+    user = relationship("User", lazy="joined", uselist=False)
+    images = relationship("Image", lazy="joined")
+
+
 class Pack(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
 
-    title = Column(String(250))
-    month = Column(Enum(Month))
-    year = Column(Integer)
-    days = Column(Integer)
+    planning = Column(Boolean, nullable=False)
+    start_date = Column(DATE)
+    end_date = Column(DATE)
+    region = Column(String(500), nullable=False)
+    trail_name = Column(String(500))
     temp_min = Column(Integer)
     temp_max = Column(Integer)
-    notes = Column(String(1000))
+    distance = Column(Numeric)
+    planning_notes = Column(String(2500))
+    notes = Column(String(2500))
     public = Column(Boolean, default=False)
     removed = Column(Boolean, default=False)
 
@@ -241,6 +260,7 @@ class Image(Base):
 
     pack_id = Column(Integer, ForeignKey("pack.id"))
     item_id = Column(Integer, ForeignKey("item.id"))
+    post_id = Column(Integer, ForeignKey("post.id"))
     s3_key = Column(String)
     s3_url = Column(String)
 
@@ -261,6 +281,9 @@ class Image(Base):
         self.s3_key = s3_key
         self.s3_url = f'https://{DO_BUCKET}.{DO_REGION}.digitaloceanspaces.com/{s3_key}'
 
+    # Relationships
+    likes = relationship("LikeImage", backref="image")
+
 
 class PackCondition(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
@@ -274,6 +297,57 @@ class PackGeography(Base):
     geography_id = Column(Integer, ForeignKey(
         "geography.id"), primary_key=True)
     geography = relationship("Geography", lazy="joined")
+
+
+class Comment(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    post_id = Column(Integer, ForeignKey("post.id"))
+    pack_id = Column(Integer, ForeignKey("pack.id"))
+    comment = Column(String(1000), nullable=False)
+    removed = Column(Boolean, default=False)
+
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now())
+
+    # Relationships
+    user = relationship("User", lazy="joined", uselist=False)
+
+
+class Follow(Base):
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    following_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+
+
+class LikePost(Base):
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    post_id = Column(Integer, ForeignKey("post.id"), primary_key=True)
+
+
+class LikePack(Base):
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
+
+
+class LikeComment(Base):
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    comment_id = Column(Integer, ForeignKey("comment.id"), primary_key=True)
+
+
+class LikeImage(Base):
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    image_id = Column(Integer, ForeignKey("image.id"), primary_key=True)
+
+
+class Reported(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    post_id = Column(Integer, ForeignKey("post.id"))
+    pack_id = Column(Integer, ForeignKey("pack.id"))
+
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
 
 
 class PasswordReset(Base):

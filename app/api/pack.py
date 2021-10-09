@@ -5,7 +5,6 @@ from typing import List
 from sqlalchemy.orm import joinedload
 
 from models.base import User, Pack, PackItem, Image, PackGeography, PackCondition
-from models.enums import Month
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload
 
@@ -14,7 +13,6 @@ route = APIRouter()
 
 class PackType(BaseModel):
     title: str
-    month: Month = None
     year: int = None
     days: int = None
     temp_min: int = None
