@@ -12,16 +12,16 @@ route = APIRouter()
 
 
 class PackType(BaseModel):
-    title: str
-    year: int = None
-    days: int = None
-    temp_min: int = None
-    temp_max: int = None
+    region: str
+    trail_name: str = None
+    start_date: str = None
+    end_date: str = None
+    temp_min: float = None
+    temp_max: float = None
+    distance: float = None
     notes: str = None
     public: bool = None
     removed: bool = None
-
-    image_id: int = None
 
     condition_ids: List[int] = None
     geography_ids: List[int] = None
@@ -30,7 +30,8 @@ class PackType(BaseModel):
 @route.post("")
 def create(payload: PackType, user: User = Depends(authenticate)):
     pack = payload.dict(exclude_none=True)
-    image_id = pack.pop('image_id', None)
+    condition_ids = pack.pop('condition_ids', None)
+    geography_ids = pack.pop('geography_ids', None)
     new_pack = Pack(user_id=user.id, **pack)
 
     try:
@@ -40,15 +41,25 @@ def create(payload: PackType, user: User = Depends(authenticate)):
     except:
         raise HTTPException(400, "Unable to create pack.")
 
-    if image_id:
-        pack_image = db.session.query(Image).filter_by(id=image_id).first()
-        if pack_image:
-            try:
-                pack_image.pack_id = new_pack.id
-                db.session.commit()
-                db.session.refresh(new_pack)
-            except Exception as e:
-                print(e)
+    if condition_ids:
+        try:
+            conditions = [dict(pack_id=new_pack.id, condition_id=id)
+                          for id in condition_ids]
+            db.session.bulk_insert_mappings(PackCondition, conditions)
+            db.session.commit()
+        except:
+            pass
+
+    if geography_ids:
+        try:
+            geographies = [dict(pack_id=new_pack.id, geography_id=id)
+                           for id in geography_ids]
+            db.session.bulk_insert_mappings(PackGeography, geographies)
+            db.session.commit()
+        except:
+            pass
+
+    db.session.refresh(new_pack)
 
     return new_pack
 
@@ -69,7 +80,7 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     fields = payload.dict(exclude_none=True)
     condition_ids = fields.pop('condition_ids', None)
     geography_ids = fields.pop('geography_ids', None)
-    image_id = fields.pop('image_id', None)
+    # image_id = fields.pop('image_id', None)
 
     for key, value in fields.items():
         setattr(pack, key, value)
@@ -104,15 +115,15 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
                 pack_id=pack.id, geography_id=geography)
             db.session.add(assoc_geography)
 
-    if image_id:
-        pack_image = db.session.query(Image).filter_by(id=image_id).first()
-        if pack_image:
-            try:
-                pack_image.pack_id = pack.id
-            except Exception as e:
-                print(e)
+    # if image_id:
+    #     pack_image = db.session.query(Image).filter_by(id=image_id).first()
+    #     if pack_image:
+    #         try:
+    #             pack_image.pack_id = pack.id
+    #         except Exception as e:
+    #             print(e)
 
-    if condition_ids or geography_ids or image_id:
+    if condition_ids or geography_ids:
         try:
             db.session.commit()
             db.session.refresh(pack)

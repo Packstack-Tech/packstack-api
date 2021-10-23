@@ -86,9 +86,8 @@ class User(Base):
             "id": self.id,
             "display_name": self.display_name,
             "avatar": self.avatar,
-            "plan": self.plan,
+            "bio": self.bio,
             "unit": self.unit,
-            "currency": self.currency,
             "banned": self.banned,
             "deactivated": self.deactivated,
             "email_verified": self.email_verified,
@@ -97,6 +96,8 @@ class User(Base):
             "youtube_url": self.youtube_url,
             "twitter_url": self.twitter_url,
             "facebook_url": self.facebook_url,
+            "snap_url": self.snap_url,
+            "personal_url": self.personal_url,
 
             "inventory": self.inventory,
             "packs": self.packs,
@@ -206,7 +207,6 @@ class Pack(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
 
-    planning = Column(Boolean, nullable=False)
     start_date = Column(DATE)
     end_date = Column(DATE)
     region = Column(String(500), nullable=False)
