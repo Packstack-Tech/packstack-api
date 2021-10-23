@@ -79,7 +79,6 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     fields = payload.dict(exclude_none=True)
     condition_ids = fields.pop('condition_ids', None)
     geography_ids = fields.pop('geography_ids', None)
-    # image_id = fields.pop('image_id', None)
 
     try:
         for key, value in fields.items():
@@ -90,45 +89,33 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     except Exception as e:
         raise HTTPException(400, "An error occurred while updating pack.")
 
-    if condition_ids:
-        for condition in pack.conditions:
-            if condition.condition_id not in condition_ids:
-                db.session.delete(condition)
-            else:
-                condition_ids.remove(condition.condition_id)
+    if condition_ids is not None:
+        for pack_condition in pack.conditions:
+            db.session.delete(pack_condition)
 
-        for condition in condition_ids:
-            assoc_condition = PackCondition(
-                pack_id=pack.id, condition_id=condition)
-            db.session.add(assoc_condition)
-
-    if geography_ids:
-        for geography in pack.geographies:
-            if geography.geography_id not in geography_ids:
-                db.session.delete(geography)
-            else:
-                geography_ids.remove(geography.geography_id)
-
-        for geography in geography_ids:
-            assoc_geography = PackGeography(
-                pack_id=pack.id, geography_id=geography)
-            db.session.add(assoc_geography)
-
-    # if image_id:
-    #     pack_image = db.session.query(Image).filter_by(id=image_id).first()
-    #     if pack_image:
-    #         try:
-    #             pack_image.pack_id = pack.id
-    #         except Exception as e:
-    #             print(e)
-
-    if condition_ids or geography_ids:
         try:
-            db.session.commit()
-            db.session.refresh(pack)
-        except Exception as e:
-            raise HTTPException(
-                400, "An error occurred while adding pack associations.")
+            conditions = [dict(pack_id=pack.id, condition_id=id)
+                          for id in condition_ids]
+            db.session.bulk_insert_mappings(PackCondition, conditions)
+        except:
+            pass
+
+    if geography_ids is not None:
+        for pack_geography in pack.geographies:
+            db.session.delete(pack_geography)
+
+        try:
+            geographies = [dict(pack_id=pack.id, geography_id=id)
+                           for id in geography_ids]
+            db.session.bulk_insert_mappings(PackGeography, geographies)
+        except:
+            pass
+
+    try:
+        db.session.commit()
+        db.session.refresh(pack)
+    except:
+        pass
 
     return pack
 

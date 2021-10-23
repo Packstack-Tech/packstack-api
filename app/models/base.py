@@ -34,7 +34,7 @@ class User(Base):
     stripe_customer_id = Column(String)
     stripe_sub_id = Column(String)
 
-    display_name = Column(String(50), nullable=False)
+    display_name = Column(String(50))
     bio = Column(String(500))
     unit_weight = Column(String(10), default="METRIC")
     unit_distance = Column(String(10), default="MI")
@@ -88,7 +88,9 @@ class User(Base):
             "display_name": self.display_name,
             "avatar": self.avatar,
             "bio": self.bio,
-            "unit": self.unit,
+            "unit_weight": self.unit_weight,
+            "unit_distance": self.unit_distance,
+            "unit_temperature": self.unit_temperature,
             "banned": self.banned,
             "deactivated": self.deactivated,
             "email_verified": self.email_verified,
