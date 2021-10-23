@@ -66,7 +66,6 @@ def create(payload: PackType, user: User = Depends(authenticate)):
 
 class PackUpdate(PackType):
     id: int
-    title: str = None
 
 
 @route.put("")
@@ -82,10 +81,10 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     geography_ids = fields.pop('geography_ids', None)
     # image_id = fields.pop('image_id', None)
 
-    for key, value in fields.items():
-        setattr(pack, key, value)
-
     try:
+        for key, value in fields.items():
+            setattr(pack, key, value)
+
         db.session.commit()
         db.session.refresh(pack)
     except Exception as e:

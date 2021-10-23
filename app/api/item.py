@@ -3,7 +3,6 @@ from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 
 from models.base import User, Item
-from models.enums import WeightUnit
 from utils.auth import authenticate
 
 route = APIRouter()
@@ -15,7 +14,7 @@ class ItemType(BaseModel):
     product_id: int = None
     category_id: int = None
     weight: float = 0.0
-    unit: WeightUnit = None
+    unit: str = None
     price: float = 0.0
     consumable: bool = False
     product_url: str = None

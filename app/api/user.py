@@ -3,7 +3,6 @@ from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 
 from models.base import User, Image
-from models.enums import WeightUnit, Currency
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload
 
@@ -70,8 +69,8 @@ def login(payload: UserAuth):
 
 class UserUpdate(BaseModel):
     display_name: str = None
-    unit: WeightUnit = None
-    currency: Currency = None
+    unit: str = None
+    currency: str = None
     deactivated: bool = None
     instagram_url: str = None
     youtube_url: str = None

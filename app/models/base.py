@@ -10,7 +10,6 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
 from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION
-from .enums import UnitSystem, WeightUnit
 from utils.utils import group_by_category
 
 engine = create_engine(DATABASE_URL)
@@ -36,8 +35,10 @@ class User(Base):
     stripe_sub_id = Column(String)
 
     display_name = Column(String(50), nullable=False)
-    unit = Column(Enum(UnitSystem), default=UnitSystem.IMPERIAL)
     bio = Column(String(500))
+    unit_weight = Column(String(10), default="METRIC")
+    unit_distance = Column(String(10), default="MI")
+    unit_temperature = Column(String(10), default="F")
 
     # Social profiles
     instagram_url = Column(String(500))
@@ -131,7 +132,7 @@ class Item(Base):
 
     name = Column(String(100))
     weight = Column(Numeric, default=0.0)
-    unit = Column(Enum(WeightUnit))
+    unit = Column(String(10))
     price = Column(Numeric, default=0.0)
     consumable = Column(Boolean, default=False)
     product_url = Column(String(250))
@@ -289,6 +290,8 @@ class PackCondition(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
     condition_id = Column(Integer, ForeignKey(
         "condition.id"), primary_key=True)
+
+    # Relationships
     condition = relationship("Condition", lazy="joined")
 
 
@@ -296,6 +299,8 @@ class PackGeography(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
     geography_id = Column(Integer, ForeignKey(
         "geography.id"), primary_key=True)
+
+    # Relationships
     geography = relationship("Geography", lazy="joined")
 
 
