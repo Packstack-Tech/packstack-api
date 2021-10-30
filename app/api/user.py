@@ -23,10 +23,12 @@ def register(payload: UserAuth):
     existing_account = db.session.query(User).filter_by(email=email).first()
 
     if existing_account:
-        raise HTTPException(status_code=400, detail="Email address is already registered.")
+        raise HTTPException(
+            status_code=400, detail="Email address is already registered.")
 
     if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
+        raise HTTPException(
+            status_code=400, detail="Password must be at least 6 characters long.")
 
     # Hash password and save user
     hashed_password = User.generate_hash(password)
@@ -95,7 +97,7 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
 
 @route.post("/avatar")
 def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticate)):
-    avatar = Image(user_id=user.id)
+    avatar = Image(user_id=user.id, avatar=True)
 
     try:
         db.session.add(avatar)
@@ -104,17 +106,16 @@ def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticat
         db.session.commit()
         db.session.refresh(avatar)
     except Exception as e:
-        raise HTTPException(400, "An error occurred while creating image metadata.")
+        raise HTTPException(
+            400, "An error occurred while creating image metadata.")
 
-    upload_success = s3_file_upload(file, content_type=file.content_type, key=avatar.s3_key)
+    upload_success = s3_file_upload(
+        file, content_type=file.content_type, key=avatar.s3_key)
     if not upload_success:
         db.session.delete(avatar)
         db.session.commit()
         raise HTTPException(400, "An error occurred while saving avatar.")
 
-    # save new avatar as user default
-    user.avatar_url = avatar.s3_url
-    db.session.commit()
     db.session.refresh(user)
 
     return user

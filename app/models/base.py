@@ -65,6 +65,7 @@ class User(Base):
                           lazy="joined",
                           primaryjoin="and_(User.id == Image.user_id, "
                           "Image.avatar == True)",
+                          order_by="desc(Image.created_at)",
                           uselist=False)
 
     inventory = relationship("Item",
@@ -85,6 +86,7 @@ class User(Base):
     def to_dict(self):
         return {
             "id": self.id,
+            "email": self.email,
             "display_name": self.display_name,
             "avatar": self.avatar,
             "bio": self.bio,
@@ -103,7 +105,7 @@ class User(Base):
             "personal_url": self.personal_url,
 
             "inventory": self.inventory,
-            "packs": self.packs,
+            "trips": self.packs,
             "categories": self.categories
         }
 
@@ -266,6 +268,9 @@ class Image(Base):
     post_id = Column(Integer, ForeignKey("post.id"))
     s3_key = Column(String)
     s3_url = Column(String)
+
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
 
     @hybrid_property
     def s3(self):
