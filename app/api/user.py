@@ -73,13 +73,15 @@ def login(payload: UserAuth):
 
 class UserUpdate(BaseModel):
     display_name: str = None
-    unit: str = None
-    currency: str = None
-    deactivated: bool = None
+    bio: str = None
+    unit_distance: str = None
+    unit_temperature: str = None
+    facebook_url: str = None
     instagram_url: str = None
     youtube_url: str = None
     twitter_url: str = None
-    reddit_url: str = None
+    snap_url: str = None
+    personal_url: str = None
 
 
 @route.put("")
