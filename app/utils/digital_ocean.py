@@ -23,7 +23,7 @@ def s3_file_upload(file, content_type, key, bucket=DO_BUCKET):
     """
 
     try:
-        s3_client.upload_fileobj(file.file,
+        s3_client.upload_fileobj(file,
                                  bucket,
                                  key,
                                  ExtraArgs={'ACL': 'public-read', 'ContentType': content_type})

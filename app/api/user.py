@@ -1,6 +1,8 @@
+from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from PIL import Image as PILImage
 
 from models.base import User, Image
 from utils.auth import authenticate
@@ -99,6 +101,15 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
 def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticate)):
     avatar = Image(user_id=user.id, avatar=True)
 
+    # save thumbnail
+    temp = BytesIO()
+    img = PILImage.open(file.file)
+    img_format = img.format
+    content_type = PILImage.MIME[img_format]
+    img = img.resize([400, 400], PILImage.ANTIALIAS)
+    img.save(temp, format=img_format)
+    temp.seek(0)
+
     try:
         db.session.add(avatar)
         db.session.commit()
@@ -110,7 +121,7 @@ def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticat
             400, "An error occurred while creating image metadata.")
 
     upload_success = s3_file_upload(
-        file, content_type=file.content_type, key=avatar.s3_key)
+        temp, content_type=content_type, key=avatar.s3_key)
     if not upload_success:
         db.session.delete(avatar)
         db.session.commit()

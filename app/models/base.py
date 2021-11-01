@@ -276,14 +276,15 @@ class Image(Base):
     def s3(self):
         return self.s3_key
 
+    # Defines the asset url
     @s3.setter
     def s3(self, metadata):
-        entity = metadata['entity']  # pack, image or avatar
-        filename = metadata['filename']
+        entity = metadata['entity']  # pack, image, post or avatar
+        filename = metadata['filename'] if not self.avatar else f'{self.id}-{metadata["filename"]}'
         disallowed_chars = ['/', ' ']
         sanitized_filename = ''.join(
             i for i in filename if i not in disallowed_chars).lower()
-        entity_id = '' if self.avatar else f'/{self.pack_id}' or f'/{self.item_id}'
+        entity_id = '' if self.avatar else f'/{self.pack_id}' or f'/{self.item_id}' or f'/{self.post_id}'
         s3_key = f'user/{self.user_id}/{entity}{entity_id}/{sanitized_filename}'
 
         self.s3_key = s3_key
