@@ -92,6 +92,7 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     if condition_ids is not None:
         for pack_condition in pack.conditions:
             db.session.delete(pack_condition)
+            db.session.commit()
 
         try:
             conditions = [dict(pack_id=pack.id, condition_id=id)
@@ -103,6 +104,7 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
     if geography_ids is not None:
         for pack_geography in pack.geographies:
             db.session.delete(pack_geography)
+            db.session.commit()
 
         try:
             geographies = [dict(pack_id=pack.id, geography_id=id)
@@ -148,7 +150,7 @@ def upload_image(pack_id, file: UploadFile = File(...), user: User = Depends(aut
 @route.get("/{pack_id}")
 def fetch_one(pack_id):
     pack = db.session.query(Pack).options(
-        joinedload(Pack.items)).filter_by(id=pack_id).first()
+        joinedload(Pack.items), joinedload(Pack.user)).filter_by(id=pack_id).first()
     pack.categories = pack.items_by_category
     return pack
 
