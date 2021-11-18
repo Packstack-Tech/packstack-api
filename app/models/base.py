@@ -267,7 +267,9 @@ class Image(Base):
     item_id = Column(Integer, ForeignKey("item.id"))
     post_id = Column(Integer, ForeignKey("post.id"))
     s3_key = Column(String)
+    s3_key_thumb = Column(String)
     s3_url = Column(String)
+    s3_url_thumb = Column(String)
 
     created_at = Column(
         DateTime, default=datetime.datetime.utcnow, nullable=False)
@@ -280,15 +282,29 @@ class Image(Base):
     @s3.setter
     def s3(self, metadata):
         entity = metadata['entity']  # pack, image, post or avatar
-        filename = metadata['filename'] if not self.avatar else f'{self.id}-{metadata["filename"]}'
-        disallowed_chars = ['/', ' ']
-        sanitized_filename = ''.join(
-            i for i in filename if i not in disallowed_chars).lower()
-        entity_id = '' if self.avatar else f'/{self.pack_id}' or f'/{self.item_id}' or f'/{self.post_id}'
-        s3_key = f'user/{self.user_id}/{entity}{entity_id}/{sanitized_filename}'
+        extension = '.png'
+
+        # remove disallowed characters
+        # sanitized_filename = ''.join(
+        #     i for i in filename if i not in ['/', ' ']).lower()
+
+        # entity path segment
+        entity_id = self.pack_id or self.item_id or self.post_id
+        entity_path = ''
+        if entity_id:
+            entity_path = f'/{entity_id}'
+
+        full_filename = f'{self.id}{extension}'
+        thumb_filename = f'{self.id}-thumb{extension}'
+
+        s3_key_path = f'user/{self.user_id}/{entity}{entity_path}'
+        s3_key = f'{s3_key_path}/{full_filename}'
+        s3_key_thumb = f'{s3_key_path}/{thumb_filename}'
 
         self.s3_key = s3_key
+        self.s3_key_thumb = s3_key_thumb
         self.s3_url = f'https://{DO_BUCKET}.{DO_REGION}.digitaloceanspaces.com/{s3_key}'
+        self.s3_url_thumb = f'https://{DO_BUCKET}.{DO_REGION}.digitaloceanspaces.com/{s3_key_thumb}'
 
     # Relationships
     likes = relationship("LikeImage", backref="image")

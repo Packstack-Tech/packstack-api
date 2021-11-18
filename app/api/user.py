@@ -106,7 +106,7 @@ def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticat
     # save thumbnail
     temp = BytesIO()
     img = PILImage.open(file.file)
-    img_format = img.format
+    img_format = 'PNG'
     content_type = PILImage.MIME[img_format]
     img = img.resize([400, 400], PILImage.ANTIALIAS)
     img.save(temp, format=img_format)
@@ -115,7 +115,7 @@ def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticat
     try:
         db.session.add(avatar)
         db.session.commit()
-        avatar.s3 = {'filename': file.filename, 'entity': 'avatar'}
+        avatar.s3 = {'extension': '.png', 'entity': 'avatar'}
         db.session.commit()
         db.session.refresh(avatar)
     except Exception as e:

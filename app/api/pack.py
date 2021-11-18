@@ -1,8 +1,10 @@
+from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import joinedload
+from PIL import Image as PILImage
 
 from models.base import User, Pack, PackItem, Image, PackGeography, PackCondition
 from utils.auth import authenticate
@@ -126,20 +128,42 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
 def upload_image(pack_id, file: UploadFile = File(...), user: User = Depends(authenticate)):
     pack_image = Image(user_id=user.id, pack_id=pack_id)
 
+    # save thumbnail & resized version
+    temp_original = BytesIO()
+    temp_thumb = BytesIO()
+
+    img = PILImage.open(file.file)
+    img_format = 'PNG'
+    content_type = PILImage.MIME[img_format]
+
+    thumb = img.copy()
+
+    img.thumbnail([1200, 1200], PILImage.ANTIALIAS)
+    thumb.thumbnail([300, 300], PILImage.ANTIALIAS)
+
+    img.save(temp_original, format=img_format, quality=60)
+    thumb.save(temp_thumb, format=img_format, quality=75)
+    temp_original.seek(0)
+    temp_thumb.seek(0)
+
     try:
         db.session.add(pack_image)
         db.session.commit()
-        pack_image.s3 = {'filename': file.filename, 'entity': 'pack'}
+        pack_image.s3 = {'extension': '.png', 'entity': 'pack'}
         db.session.commit()
         db.session.refresh(pack_image)
     except Exception as e:
+        print(e)
         raise HTTPException(
             400, "An error occurred while creating image metadata.")
 
-    # todo compress image prior to upload?
     upload_success = s3_file_upload(
-        file, content_type=file.content_type, key=pack_image.s3_key)
-    if not upload_success:
+        temp_original, content_type=content_type, key=pack_image.s3_key)
+
+    upload_thumb_success = s3_file_upload(
+        temp_thumb, content_type=content_type, key=pack_image.s3_key_thumb)
+
+    if not upload_success or not upload_thumb_success:
         db.session.delete(pack_image)
         db.session.commit()
         raise HTTPException(400, "An error occurred while saving image.")
