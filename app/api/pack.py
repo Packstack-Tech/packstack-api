@@ -4,7 +4,7 @@ from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import joinedload
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageOps
 
 from models.base import User, Pack, PackItem, Image, PackGeography, PackCondition
 from utils.auth import authenticate
@@ -133,6 +133,7 @@ def upload_image(pack_id, file: UploadFile = File(...), user: User = Depends(aut
     temp_thumb = BytesIO()
 
     img = PILImage.open(file.file)
+    img = ImageOps.exif_transpose(img)
     img_format = 'PNG'
     content_type = PILImage.MIME[img_format]
 

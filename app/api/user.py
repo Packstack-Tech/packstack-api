@@ -2,7 +2,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageOps
 
 from models.base import User, Image
 from utils.auth import authenticate
@@ -106,6 +106,7 @@ def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticat
     # save thumbnail
     temp = BytesIO()
     img = PILImage.open(file.file)
+    img = ImageOps.exif_transpose(img)
     img_format = 'PNG'
     content_type = PILImage.MIME[img_format]
     img = img.resize([400, 400], PILImage.ANTIALIAS)
