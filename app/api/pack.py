@@ -172,6 +172,33 @@ def upload_image(pack_id, file: UploadFile = File(...), user: User = Depends(aut
     return pack_image
 
 
+class PhotoOrder(BaseModel):
+    id: int
+    sort_order: int
+
+
+class SortPackPhotos(BaseModel):
+    __root__: List[PhotoOrder]
+
+    def __iter__(self):
+        return iter(self.__root__)
+
+
+@route.post("/sort-photos")
+def sort_images(photos: SortPackPhotos, user: User = Depends(authenticate)):
+    photo_mappings = [dict(id=photo.id, sort_order=photo.sort_order)
+                      for photo in photos]
+
+    try:
+        db.session.bulk_update_mappings(Image, photo_mappings)
+        db.session.commit()
+    except:
+        raise HTTPException(
+            400, "An error occurred while updating photo order.")
+
+    return True
+
+
 @route.get("/{pack_id}")
 def fetch_one(pack_id):
     pack = db.session.query(Pack).options(

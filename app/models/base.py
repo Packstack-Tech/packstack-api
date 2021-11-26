@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer
     Numeric, UniqueConstraint, select
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
 from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION
@@ -238,7 +239,10 @@ class Pack(Base):
     items = relationship("PackItem")
     conditions = relationship("PackCondition", lazy="joined")
     geographies = relationship("PackGeography", lazy="joined")
-    images = relationship("Image", lazy="joined")
+    images = relationship("Image",
+                          lazy="joined",
+                          order_by="Image.sort_order",
+                          collection_class=ordering_list('sort_order'))
 
     @hybrid_property
     def items_by_category(self):
@@ -262,6 +266,7 @@ class Image(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     avatar = Column(Boolean, default=False)
+    sort_order = Column(Integer, default=0)
 
     pack_id = Column(Integer, ForeignKey("pack.id"))
     item_id = Column(Integer, ForeignKey("item.id"))
@@ -283,10 +288,6 @@ class Image(Base):
     def s3(self, metadata):
         entity = metadata['entity']  # pack, image, post or avatar
         extension = '.png'
-
-        # remove disallowed characters
-        # sanitized_filename = ''.join(
-        #     i for i in filename if i not in ['/', ' ']).lower()
 
         # entity path segment
         entity_id = self.pack_id or self.item_id or self.post_id
