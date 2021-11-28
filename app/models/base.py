@@ -241,8 +241,7 @@ class Pack(Base):
     geographies = relationship("PackGeography", lazy="joined")
     images = relationship("Image",
                           lazy="joined",
-                          order_by="Image.sort_order",
-                          collection_class=ordering_list('sort_order'))
+                          order_by="Image.sort_order")
 
     @hybrid_property
     def items_by_category(self):

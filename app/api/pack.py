@@ -126,7 +126,11 @@ def update(payload: PackUpdate, user: User = Depends(authenticate)):
 
 @route.post("/{pack_id}/upload-image")
 def upload_image(pack_id, file: UploadFile = File(...), user: User = Depends(authenticate)):
-    pack_image = Image(user_id=user.id, pack_id=pack_id)
+    pack = db.session.query(Pack).filter_by(id=pack_id).first()
+    sort_order = len(pack.images)
+    pack_image = Image(user_id=user.id,
+                       pack_id=pack_id,
+                       sort_order=sort_order)
 
     # save thumbnail & resized version
     temp_original = BytesIO()
@@ -184,19 +188,22 @@ class SortPackPhotos(BaseModel):
         return iter(self.__root__)
 
 
-@route.post("/sort-photos")
-def sort_images(photos: SortPackPhotos, user: User = Depends(authenticate)):
+@route.post("/{pack_id}/sort-photos")
+def sort_images(pack_id, photos: SortPackPhotos, user: User = Depends(authenticate)):
     photo_mappings = [dict(id=photo.id, sort_order=photo.sort_order)
                       for photo in photos]
 
     try:
         db.session.bulk_update_mappings(Image, photo_mappings)
+        pack = db.session.query(Pack).filter_by(id=pack_id).first()
         db.session.commit()
-    except:
+        db.session.refresh(pack)
+    except Exception as e:
+        print(e)
         raise HTTPException(
             400, "An error occurred while updating photo order.")
 
-    return True
+    return pack.images
 
 
 @route.get("/{pack_id}")
