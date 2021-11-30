@@ -32,3 +32,13 @@ def s3_file_upload(file, content_type, key, bucket=DO_BUCKET):
         return False
 
     return True
+
+
+def s3_file_delete(key):
+    try:
+        s3_client.delete_object(Bucket=DO_BUCKET, Key=key)
+    except ClientError as e:
+        print(e)
+        return False
+
+    return True

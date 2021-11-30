@@ -8,7 +8,7 @@ from PIL import Image as PILImage, ImageOps
 
 from models.base import User, Pack, PackItem, Image, PackGeography, PackCondition
 from utils.auth import authenticate
-from utils.digital_ocean import s3_file_upload
+from utils.digital_ocean import s3_file_upload, s3_file_delete
 
 route = APIRouter()
 
@@ -204,6 +204,27 @@ def sort_images(pack_id, photos: SortPackPhotos, user: User = Depends(authentica
             400, "An error occurred while updating photo order.")
 
     return pack.images
+
+
+@route.delete("/{pack_id}/image/{id}")
+def remove_image(pack_id, id, user: User = Depends(authenticate)):
+    pack = db.session.query(Pack).filter_by(id=pack_id).first()
+
+    if pack.user_id is not user.id:
+        raise HTTPException(
+            400, "Permission denied.")
+
+    image = db.session.query(Image).filter_by(id=id).first()
+    s3_file_delete(image.s3_key)
+    s3_file_delete(image.s3_key_thumb)
+
+    db.session.delete(image)
+    db.session.commit()
+
+    return {
+        "trip_id": pack_id,
+        "image_id": id
+    }
 
 
 @route.get("/{pack_id}")
