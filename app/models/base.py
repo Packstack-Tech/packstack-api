@@ -87,7 +87,7 @@ class User(Base):
     def to_dict(self):
         return {
             "id": self.id,
-            "email": self.email,
+            # "email": self.email,
             "display_name": self.display_name,
             "avatar": self.avatar,
             "bio": self.bio,
@@ -105,9 +105,9 @@ class User(Base):
             "snap_url": self.snap_url,
             "personal_url": self.personal_url,
 
-            "inventory": self.inventory,
+            # "inventory": self.inventory,
             "trips": self.packs,
-            "categories": self.categories
+            # "categories": self.categories
         }
 
     @staticmethod
