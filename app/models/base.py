@@ -230,10 +230,10 @@ class Pack(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
     # Associated item count queried at load
-    item_count = column_property(
-        select([func.count(PackItem.pack_id)]).where(
-            PackItem.pack_id == id).correlate_except(PackItem)
-    )
+    # item_count = column_property(
+    #     select([func.count(PackItem.pack_id)]).where(
+    #         PackItem.pack_id == id).correlate_except(PackItem)
+    # )
 
     # Relationships
     items = relationship("PackItem")
