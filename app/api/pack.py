@@ -1,3 +1,5 @@
+import datetime
+
 from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
@@ -11,6 +13,16 @@ from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload, s3_file_delete
 
 route = APIRouter()
+
+
+@route.get("")
+def fetch():
+    now = datetime.datetime.utcnow()
+    packs = db.session.query(Pack).filter(
+        Pack.end_date != None, Pack.end_date <= now
+    ).order_by(Pack.end_date.desc()).limit(20).all()
+
+    return packs
 
 
 class PackType(BaseModel):
