@@ -19,7 +19,9 @@ route = APIRouter()
 def fetch():
     now = datetime.datetime.utcnow()
     packs = db.session.query(Pack).filter(
-        Pack.end_date != None, Pack.end_date <= now
+        Pack.end_date != None,
+        Pack.end_date <= now,
+        Pack.removed == False
     ).order_by(Pack.end_date.desc()).limit(20).all()
 
     return packs
@@ -249,7 +251,8 @@ def fetch_one(pack_id):
 
 @route.get("s")
 def fetch_all(user: User = Depends(authenticate)):
-    packs = db.session.query(Pack).filter_by(user_id=user.id).all()
+    packs = db.session.query(Pack).filter_by(
+        user_id=user.id).order_by(Pack.end_date.desc()).all()
     return packs
 
 

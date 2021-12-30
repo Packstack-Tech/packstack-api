@@ -77,7 +77,8 @@ class User(Base):
                          backref="user",
                          lazy="joined",
                          primaryjoin="and_(User.id == Pack.user_id, "
-                                     "Pack.removed == False)")
+                                     "Pack.removed == False)",
+                         order_by="desc(Pack.end_date)")
 
     categories = relationship("Category",
                               lazy="joined",
