@@ -3,7 +3,7 @@ import jwt
 from random import choice
 
 from passlib.hash import pbkdf2_sha256 as sha256
-from sqlalchemy import create_engine, Boolean, Column, Enum, ForeignKey, Integer, DATE, String, DateTime, TIMESTAMP, func, \
+from sqlalchemy import create_engine, Boolean, Column, ForeignKey, Integer, DATE, String, DateTime, TIMESTAMP, func, \
     Numeric, UniqueConstraint, select
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -29,6 +29,7 @@ Base = declarative_base(cls=Base)
 class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, nullable=False, index=True)
+    username = Column(String(15), unique=True, nullable=False, index=True)
     password = Column(String, nullable=False)
     email_verified = Column(Boolean, default=False)
 
@@ -67,28 +68,33 @@ class User(Base):
                           primaryjoin="and_(User.id == Image.user_id, "
                           "Image.avatar == True)",
                           order_by="desc(Image.created_at)",
+                          cascade="all, delete-orphan",
                           uselist=False)
 
     inventory = relationship("Item",
                              lazy="joined",
                              primaryjoin="and_(User.id == Item.user_id, "
-                                         "Item.removed == False)")
+                                         "Item.removed == False)",
+                             cascade="all, delete-orphan")
+
     packs = relationship("Pack",
                          backref="user",
                          lazy="joined",
                          primaryjoin="and_(User.id == Pack.user_id, "
                                      "Pack.removed == False)",
-                         order_by="desc(Pack.end_date)")
+                         order_by="desc(Pack.end_date)",
+                         cascade="all, delete-orphan")
 
     categories = relationship("Category",
                               lazy="joined",
                               primaryjoin="or_(User.id == Category.user_id, "
-                                          "Category.user_id == None)")
+                                          "Category.user_id == None)",
+                              cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
             "id": self.id,
-            # "email": self.email,
+            "username": self.username,
             "display_name": self.display_name,
             "avatar": self.avatar,
             "bio": self.bio,
@@ -106,8 +112,8 @@ class User(Base):
             "snap_url": self.snap_url,
             "personal_url": self.personal_url,
 
+            "trips": self.packs
             # "inventory": self.inventory,
-            "trips": self.packs,
             # "categories": self.categories
         }
 
