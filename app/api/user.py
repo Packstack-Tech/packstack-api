@@ -62,21 +62,16 @@ def register(payload: UserRegister):
 
 
 class UserLogin(BaseModel):
-    email: str = None
-    username: str = None
+    emailOrUsername: str
     password: str
 
 
 @route.post("/login")
 def login(payload: UserLogin):
-    if payload.email:
-        email = payload.email.strip().lower()
+    emailOrUsername = payload.emailOrUsername.strip().lower()
 
-    if payload.username:
-        username = payload.username.strip().lower()
-
-    user = db.session.query(User).filter((User.email == email) | (
-        func.lower(User.username) == username)).first()
+    user = db.session.query(User).filter((User.email == emailOrUsername) | (
+        func.lower(User.username) == emailOrUsername)).first()
 
     if not user:
         raise HTTPException(status_code=400, detail="Account does not exist.")
