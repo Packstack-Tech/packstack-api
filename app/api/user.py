@@ -1,6 +1,9 @@
 from io import BytesIO
+
+from sqlalchemy.sql.functions import user
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
+from sqlalchemy import func
 from pydantic import BaseModel
 from PIL import Image as PILImage, ImageOps
 
@@ -11,22 +14,29 @@ from utils.digital_ocean import s3_file_upload
 route = APIRouter()
 
 
-class UserAuth(BaseModel):
+class UserRegister(BaseModel):
     email: str
+    username: str
     password: str
 
 
 @route.post("")
-def register(payload: UserAuth):
+def register(payload: UserRegister):
     email = payload.email.strip().lower()
+    username = payload.username.strip()
     password = payload.password.strip()
 
-    # Check if email is already in use
-    existing_account = db.session.query(User).filter_by(email=email).first()
+    # Check if email or username is already in use
+    existing_account = db.session.query(User).filter((User.email == email) | (
+        func.lower(User.username) == username.lower())).first()
 
     if existing_account:
         raise HTTPException(
-            status_code=400, detail="Email address is already registered.")
+            status_code=400, detail="Email or username is already registered.")
+
+    if len(username) > 15:
+        raise HTTPException(
+            status_code=400, detail="Username cannot exceed 15 characters.")
 
     if len(password) < 6:
         raise HTTPException(
@@ -34,7 +44,7 @@ def register(payload: UserAuth):
 
     # Hash password and save user
     hashed_password = User.generate_hash(password)
-    new_user = User(email=email, password=hashed_password)
+    new_user = User(email=email, username=username, password=hashed_password)
 
     try:
         db.session.add(new_user)
@@ -51,10 +61,22 @@ def register(payload: UserAuth):
     }
 
 
+class UserLogin(BaseModel):
+    email: str = None
+    username: str = None
+    password: str
+
+
 @route.post("/login")
-def login(payload: UserAuth):
-    email = payload.email.strip().lower()
-    user = db.session.query(User).filter_by(email=email).first()
+def login(payload: UserLogin):
+    if payload.email:
+        email = payload.email.strip().lower()
+
+    if payload.username:
+        username = payload.username.strip().lower()
+
+    user = db.session.query(User).filter((User.email == email) | (
+        func.lower(User.username) == username)).first()
 
     if not user:
         raise HTTPException(status_code=400, detail="Account does not exist.")
