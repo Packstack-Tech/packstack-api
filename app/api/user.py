@@ -126,8 +126,8 @@ def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticat
     img = ImageOps.exif_transpose(img)
     img_format = 'PNG'
     content_type = PILImage.MIME[img_format]
-    img = img.resize([400, 400], PILImage.ANTIALIAS, optimize=True)
-    img.save(temp, format=img_format)
+    img = img.resize([400, 400], PILImage.ANTIALIAS)
+    img.save(temp, format=img_format, optimize=True)
     temp.seek(0)
 
     try:
