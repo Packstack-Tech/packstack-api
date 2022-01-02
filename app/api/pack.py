@@ -209,24 +209,46 @@ def sort_images(pack_id, photos: SortPackPhotos, user: User = Depends(authentica
 
     try:
         db.session.bulk_update_mappings(Image, photo_mappings)
-        pack = db.session.query(Pack).filter_by(id=pack_id).first()
+        pack = db.session.query(Pack).filter_by(
+            id=pack_id, user_id=user.id).first()
         db.session.commit()
         db.session.refresh(pack)
-    except Exception as e:
-        print(e)
+    except:
         raise HTTPException(
             400, "An error occurred while updating photo order.")
 
     return pack.images
 
 
+@route.delete("/{pack_id}")
+def remove_pack(pack_id, user: User = Depends(authenticate)):
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
+
+    if not pack:
+        raise HTTPException(400, "Permission denied.")
+
+    for image in pack.images:
+        s3_file_delete(image.s3_key)
+        s3_file_delete(image.s3_key_thumb)
+        db.session.delete(image)
+
+    try:
+        pack.removed = True
+        db.session.commit()
+    except:
+        raise HTTPException(400, "An error occurred while deleting trip.")
+
+    return True
+
+
 @route.delete("/{pack_id}/image/{id}")
 def remove_image(pack_id, id, user: User = Depends(authenticate)):
-    pack = db.session.query(Pack).filter_by(id=pack_id).first()
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
 
-    if pack.user_id is not user.id:
-        raise HTTPException(
-            400, "Permission denied.")
+    if not pack:
+        raise HTTPException(400, "Permission denied.")
 
     image = db.session.query(Image).filter_by(id=id).first()
     s3_file_delete(image.s3_key)
@@ -252,7 +274,8 @@ def fetch_one(pack_id):
 @route.get("s")
 def fetch_all(user: User = Depends(authenticate)):
     packs = db.session.query(Pack).filter_by(
-        user_id=user.id).order_by(Pack.end_date.desc()).all()
+        user_id=user.id, removed=False).order_by(Pack.end_date.desc()).all()
+
     return packs
 
 
@@ -297,17 +320,5 @@ def add_items(pack_id, payload: AssocItems, user: User = Depends(authenticate)):
     except Exception as e:
         raise HTTPException(
             400, "An error occurred while adding pack associations.")
-
-    return pack
-
-
-@route.delete("/{pack_id}")
-def remove(pack_id, user: User = Depends(authenticate)):
-    pack = db.session.query(Pack).filter_by(
-        id=pack_id, user_id=user.id).first()
-    pack.removed = True
-
-    db.session.commit()
-    db.session.refresh(pack)
 
     return pack
