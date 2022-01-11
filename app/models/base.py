@@ -402,4 +402,4 @@ class PasswordReset(Base):
 
 # Create database tables if not present
 # Comment out when working with configured databases
-Base.metadata.create_all(engine)
+# Base.metadata.create_all(engine)
