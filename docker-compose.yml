@@ -7,25 +7,8 @@ services:
       - 80:80
     depends_on:
       - postgres
-    environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: password
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: packstack
-      JWT_SECRET: 0839942409BCFFF12C92AF8C66BF5BD06086F423C361D7C36BA8CB2CFBFCD8EF
-      JWT_ALGORITHM: HS256
-
-      DO_REGION: nyc3
-      DO_SPACES_KEY: QSGTMTKNDI7NMPW2YWIS
-      DO_SPACES_SECRET_KEY: OS3UGf/JbTvl85EOH9KPbC5VTnhG2nhNBzztzhy1A3Y
-      DO_ACCESS_TOKEN: dc430cd7e6aff9d795bb9eb3229469b7527fbdab7a88052e97de3ed8b541ab55
-      DO_BUCKET: packstack-staging
-
-      MAILCHIMP_API_KEY:
-      STRIPE_SECRET:
-      MAILJET_API_KEY:
-      MAILJET_SECRET_KEY:
+    env_file:
+      - .env
 
     networks:
       - packstack
@@ -49,18 +32,3 @@ networks:
 
 volumes:
   pgdata:
-
-
-# POSTGRES_USER = doadmin
-# POSTGRES_PASSWORD = VDx7yLSo3DKpvYvE
-# POSTGRES_HOST = packstack-db-nyc3-prod-do-user-8976642-0.b.db.ondigitalocean.com
-# POSTGRES_PORT = 25060
-# POSTGRES_DB = packstack
-# sslmode = require
-# JWT_SECRET: 0839942409BCFFF12C92AF8C66BF5BD06086F423C361D7C36BA8CB2CFBFCD8EF
-# JWT_ALGORITHM: HS256
-# DO_REGION: nyc3
-# DO_SPACES_KEY: IDTYPV73MSY5R5EBHB4I
-# DO_SPACES_SECRET_KEY: C6OilKOM5Fx3kYawGeXBRPzMmZo4yJ6dE8yEwssqeL0
-# DO_ACCESS_TOKEN: 40b1a8c857ad7f45fe1254cdb2d3717426a1f06453cd9be68d678225600d84f9
-# DO_BUCKET: packstack

@@ -10,6 +10,7 @@ from PIL import Image as PILImage, ImageOps
 from models.base import User, Image
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload
+from utils.mailchimp import add_contact
 
 route = APIRouter()
 
@@ -54,6 +55,9 @@ def register(payload: UserRegister):
         raise HTTPException(status_code=400, detail="An error occurred.")
 
     jwt_token = User.generate_jwt(new_user)
+
+    # Mailchimp
+    add_contact(email)
 
     return {
         "user": new_user.to_dict(),
@@ -159,7 +163,8 @@ def fetch(user: User = Depends(authenticate)):
 
 @route.get("/profile/{username}")
 def get_profile(username):
-    user = db.session.query(User).filter(func.lower(User.username) == username.strip().lower()).first()
+    user = db.session.query(User).filter(func.lower(
+        User.username) == username.strip().lower()).first()
 
     if not user:
         raise HTTPException(400, "User does not exist.")
