@@ -21,6 +21,7 @@ def add_contact(email, audience_id=MAILCHIMP_AUDIENCE_ID):
     member_info = {
         "email_address": email,
         "status": "subscribed",
+        "tags": ["Social"]
     }
 
     try:
