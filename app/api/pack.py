@@ -158,10 +158,10 @@ def upload_image(pack_id, file: UploadFile = File(...), user: User = Depends(aut
     thumb = img.copy()
 
     img.thumbnail([1000, 1000], PILImage.ANTIALIAS)
-    thumb.thumbnail([300, 300], PILImage.ANTIALIAS)
+    thumb.thumbnail([600, 600], PILImage.ANTIALIAS)
 
     img.save(temp_original, format=img_format, quality=65, optimize=True)
-    thumb.save(temp_thumb, format=img_format, quality=95, optimize=True)
+    thumb.save(temp_thumb, format=img_format, quality=85, optimize=True)
     temp_original.seek(0)
     temp_thumb.seek(0)
 
