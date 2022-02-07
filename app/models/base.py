@@ -10,7 +10,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
-from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION
+from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION, DO_CDN
 from utils.utils import group_by_category
 
 engine = create_engine(DATABASE_URL)
@@ -310,8 +310,8 @@ class Image(Base):
 
         self.s3_key = s3_key
         self.s3_key_thumb = s3_key_thumb
-        self.s3_url = f'https://{DO_BUCKET}.{DO_REGION}.digitaloceanspaces.com/{s3_key}'
-        self.s3_url_thumb = f'https://{DO_BUCKET}.{DO_REGION}.digitaloceanspaces.com/{s3_key_thumb}'
+        self.s3_url = f'{DO_CDN}/{s3_key}'
+        self.s3_url_thumb = f'{DO_CDN}/{s3_key_thumb}'
 
     # Relationships
     likes = relationship("LikeImage", backref="image")
