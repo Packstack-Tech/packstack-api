@@ -242,6 +242,33 @@ def remove_pack(pack_id, user: User = Depends(authenticate)):
     return True
 
 
+class UpdateImage(BaseModel):
+    caption: str = None
+
+
+@route.put("/{pack_id}/image/{id}")
+def update_image(pack_id, id, payload: UpdateImage, user: User = Depends(authenticate)):
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
+
+    if not pack:
+        raise HTTPException(400, "Permission denied.")
+
+    image = db.session.query(Image).filter_by(id=id).first()
+
+    if not image:
+        raise HTTPException(400, "Image not found.")
+
+    try:
+        image.caption = payload.caption
+        db.session.commit()
+        db.session.refresh(image)
+    except:
+        raise HTTPException(400, "An error occurred saving image.")
+
+    return image
+
+
 @route.delete("/{pack_id}/image/{id}")
 def remove_image(pack_id, id, user: User = Depends(authenticate)):
     pack = db.session.query(Pack).filter_by(
