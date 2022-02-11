@@ -273,10 +273,12 @@ class Image(Base):
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     avatar = Column(Boolean, default=False)
     sort_order = Column(Integer, default=0)
+    caption = Column(String(500))
 
     pack_id = Column(Integer, ForeignKey("pack.id"))
     item_id = Column(Integer, ForeignKey("item.id"))
     post_id = Column(Integer, ForeignKey("post.id"))
+
     s3_key = Column(String)
     s3_key_thumb = Column(String)
     s3_url = Column(String)
