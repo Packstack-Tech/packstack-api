@@ -4,7 +4,7 @@ from random import choice
 
 from passlib.hash import pbkdf2_sha256 as sha256
 from sqlalchemy import create_engine, Boolean, Column, ForeignKey, Integer, DATE, String, DateTime, TIMESTAMP, func, \
-    Numeric, UniqueConstraint, select
+    Numeric, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
@@ -85,12 +85,6 @@ class User(Base):
                          order_by="desc(Trip.end_date)",
                          cascade="all, delete-orphan")
 
-    categories = relationship("Category",
-                              lazy="joined",
-                              primaryjoin="or_(User.id == Category.user_id, "
-                                          "Category.user_id == None)",
-                              cascade="all, delete-orphan")
-
     def to_dict(self):
         return {
             "id": self.id,
@@ -113,8 +107,6 @@ class User(Base):
             "personal_url": self.personal_url,
 
             "trips": self.trips
-            # "inventory": self.inventory,
-            # "categories": self.categories
         }
 
     @staticmethod
@@ -136,19 +128,20 @@ class User(Base):
 
 class Item(Base):
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
     brand_id = Column(Integer, ForeignKey("brand.id"))
     product_id = Column(Integer, ForeignKey("product.id"))
-    category_id = Column(Integer, ForeignKey("category.id"))
+    category_id = Column(Integer, ForeignKey("itemcategory.id"))
+    sort_order = Column(Integer, default=0)
     removed = Column(Boolean, default=False)
 
     name = Column(String(100))
-    weight = Column(Numeric, default=0.0)
+    weight = Column(Numeric)
     unit = Column(String(10))
-    price = Column(Numeric, default=0.0)
-    consumable = Column(Boolean, default=False)
+    price = Column(Numeric)
+    consumable = Column(Boolean)
     product_url = Column(String(250))
-    wishlist = Column(Boolean, default=False)
+    wishlist = Column(Boolean)
     notes = Column(String(1000))
 
     created_at = Column(
@@ -158,18 +151,26 @@ class Item(Base):
     # Relationships
     brand = relationship("Brand", lazy="joined")
     product = relationship("Product", lazy="joined")
-    category = relationship("Category", lazy="joined")
+    category = relationship("ItemCategory",
+                            lazy="joined",
+                            foreign_keys=[category_id],
+                            uselist=False)
 
 
 class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"))
-    name = Column(String(100), unique=True)
-    consumable = Column(Boolean, default=False)
+    name = Column(String(50))
 
-    # Ensure category is unique per user
-    __table_args__ = (UniqueConstraint(
-        'user_id', 'name', name='_user_category_uc'),)
+
+class ItemCategory(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('user.id'))
+    category_id = Column(Integer, ForeignKey('category.id'))
+    consumable = Column(Boolean, default=False)
+    sort_order = Column(Integer, default=0)
+
+    category = relationship("Category", lazy="joined", uselist=False)
 
 
 class Brand(Base):
@@ -222,7 +223,7 @@ class Pack(Base):
     trip_id = Column(Integer, ForeignKey("trip.id"))
     title = Column(String(500), nullable=False)
 
-     # Relationships
+    # Relationships
     items = relationship("PackItem")
 
 
@@ -234,7 +235,7 @@ class Trip(Base):
     location = Column(String(500))
     start_date = Column(DATE)
     end_date = Column(DATE)
-    
+
     temp_min = Column(Integer)
     temp_max = Column(Integer)
     distance = Column(Numeric)
