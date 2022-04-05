@@ -35,8 +35,8 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     try:
         db.session.add(new_item)
         db.session.commit()
-        db.session.refresh(new_item)
-    except:
+    except Exception as e:
+        print(e)
         raise HTTPException(400, "Unable to create item.")
 
     return new_item
@@ -118,7 +118,7 @@ def sort_items(categories: SortItems, user: User = Depends(authenticate)):
 
 @route.get("s")
 def fetch(user: User = Depends(authenticate)):
-    items = db.session.query(Item).filter_by(user_id=user.id).all()
+    items = db.session.query(Item).filter_by(user_id=user.id, removed=False).all()
     return items
 
 
