@@ -1,6 +1,5 @@
 from io import BytesIO
 
-from sqlalchemy.sql.functions import user
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from sqlalchemy import func

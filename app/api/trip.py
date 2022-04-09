@@ -269,6 +269,24 @@ def update_image(trip_id, id, payload: UpdateImage, user: User = Depends(authent
     return image
 
 
+@route.put("/{trip_id}/publish")
+def toggle_publish(trip_id, user: User = Depends(authenticate)):
+    trip = db.session.query(Trip).filter_by(
+        id=trip_id, user_id=user.id).first()
+
+    if not trip:
+        raise HTTPException(400, "Permission denied.")
+
+    trip.published = not trip.published
+    try:
+        db.session.commit()
+        db.session.refresh(trip)
+    except:
+        raise HTTPException(400, "An error occurred.")
+
+    return trip
+
+
 @route.delete("/{trip_id}/image/{id}")
 def remove_image(trip_id, id, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(
@@ -292,7 +310,8 @@ def remove_image(trip_id, id, user: User = Depends(authenticate)):
 
 @route.get("/{trip_id}")
 def fetch_one(trip_id):
-    trip = db.session.query(Trip).options(joinedload(Trip.user)).filter_by(id=trip_id).first()
+    trip = db.session.query(Trip).options(
+        joinedload(Trip.user)).filter_by(id=trip_id).first()
     return trip
 
 
@@ -302,13 +321,3 @@ def fetch_all(user: User = Depends(authenticate)):
         user_id=user.id, removed=False).order_by(Trip.end_date.desc()).all()
 
     return trips
-
-
-# class TripItemType(BaseModel):
-#     item_id: int
-#     quantity: int = None
-#     worn: bool = None
-
-
-# class AssocItems(BaseModel):
-#     items: List[TripItemType]
