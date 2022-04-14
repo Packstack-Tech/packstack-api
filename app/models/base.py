@@ -1,4 +1,5 @@
 import datetime
+from email.policy import default
 import jwt
 from random import choice
 
@@ -197,6 +198,7 @@ class PackItem(Base):
     item_id = Column(Integer, ForeignKey("item.id"), primary_key=True)
     quantity = Column(Numeric, default=1)
     worn = Column(Boolean, default=False)
+    sort_order = Column(Numeric, default=0)
 
     # Relationship
     item = relationship("Item", lazy="joined")
@@ -224,7 +226,7 @@ class Pack(Base):
     title = Column(String(500), nullable=False)
 
     # Relationships
-    items = relationship("PackItem")
+    items = relationship("PackItem", lazy="joined")
 
 
 class Trip(Base):

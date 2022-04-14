@@ -22,9 +22,9 @@ def get_trip_packs(trip_id):
     return trip_packs
 
 
-@route.get("/{pack_id}")
-def get_trip_packs(pack_id):
-    pack = db.session.query(Pack).filter_by(id=pack_id).first()
+@route.get("/{id}")
+def get_trip_packs(id):
+    pack = db.session.query(Pack).filter_by(id=id).first()
     return pack
 
 
@@ -32,6 +32,7 @@ class PackItemType(BaseModel):
     item_id: int
     quantity: float = None
     worn: bool = False
+    sort_order: int = 0
 
 
 class PackType(BaseModel):
@@ -47,7 +48,7 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
     try:
         db.session.add(new_pack)
         db.session.commit()
-        db.session.refresh()
+        db.session.refresh(new_pack)
     except Exception as e:
         print(e)
         raise HTTPException(400, "An error occurred while creating pack.")
@@ -70,10 +71,10 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
     return new_pack
 
 
-@route.put("/{pack_id}")
-def update_pack(pack_id, payload: PackType, user: User = Depends(authenticate)):
+@route.put("/{id}")
+def update_pack(id, payload: PackType, user: User = Depends(authenticate)):
     pack = db.session.query(Pack).filter_by(
-        user_id=user.id, pack_id=pack_id).first()
+        user_id=user.id, id=id).first()
     if not pack:
         raise HTTPException(400, "Pack does not exist.")
 
@@ -88,7 +89,7 @@ def update_pack(pack_id, payload: PackType, user: User = Depends(authenticate)):
             400, "An error occurred while updating pack items.")
 
     for item in payload.items:
-        new_item = PackItem(pack_id=pack_id,
+        new_item = PackItem(pack_id=pack.id,
                             item_id=item.item_id,
                             quantity=item.quantity,
                             worn=item.worn)
