@@ -57,7 +57,8 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
         new_item = PackItem(pack_id=new_pack.id,
                             item_id=item.item_id,
                             quantity=item.quantity,
-                            worn=item.worn)
+                            worn=item.worn,
+                            sort_order=item.sort_order)
 
         db.session.add(new_item)
 
@@ -92,7 +93,8 @@ def update_pack(id, payload: PackType, user: User = Depends(authenticate)):
         new_item = PackItem(pack_id=pack.id,
                             item_id=item.item_id,
                             quantity=item.quantity,
-                            worn=item.worn)
+                            worn=item.worn,
+                            sort_order=item.sort_order)
 
         db.session.add(new_item)
 
