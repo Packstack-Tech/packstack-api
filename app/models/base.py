@@ -42,6 +42,7 @@ class User(Base):
     unit_weight = Column(String(10), default="METRIC")
     unit_distance = Column(String(10), default="MI")
     unit_temperature = Column(String(10), default="F")
+    currency = Column(String(10), default="USD")
 
     # Social profiles
     instagram_url = Column(String(500))
@@ -96,6 +97,7 @@ class User(Base):
             "unit_weight": self.unit_weight,
             "unit_distance": self.unit_distance,
             "unit_temperature": self.unit_temperature,
+            "currency": self.currency,
             "banned": self.banned,
             "deactivated": self.deactivated,
             "email_verified": self.email_verified,
@@ -168,7 +170,6 @@ class ItemCategory(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey('user.id'))
     category_id = Column(Integer, ForeignKey('category.id'))
-    consumable = Column(Boolean, default=False)
     sort_order = Column(Integer, default=0)
 
     category = relationship("Category", lazy="joined", uselist=False)
