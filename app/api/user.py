@@ -96,6 +96,8 @@ class UserUpdate(BaseModel):
     bio: str = None
     unit_distance: str = None
     unit_temperature: str = None
+    unit_weight: str = None
+    currency: str = None
     facebook_url: str = None
     instagram_url: str = None
     youtube_url: str = None
