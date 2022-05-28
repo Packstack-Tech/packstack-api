@@ -162,6 +162,16 @@ def fetch(user: User = Depends(authenticate)):
     return user.to_dict()
 
 
+@route.get("/id/{id}")
+def get_profile(id):
+    user = db.session.query(User).filter_by(id=id).first()
+
+    if not user:
+        raise HTTPException(400, "User does not exist.")
+
+    return user.to_dict()
+
+
 @route.get("/profile/{username}")
 def get_profile(username):
     user = db.session.query(User).filter(func.lower(

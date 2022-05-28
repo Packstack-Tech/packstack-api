@@ -21,8 +21,9 @@ def fetch():
     trips = db.session.query(Trip).filter(
         Trip.end_date != None,
         Trip.end_date <= now,
-        Trip.removed == False
-    ).order_by(Trip.end_date.desc()).limit(20).all()
+        Trip.removed == False,
+        Trip.published == True
+    ).order_by(Trip.end_date.desc()).limit(35).all()
 
     return trips
 
