@@ -1,10 +1,11 @@
 import datetime
+from email.policy import default
 import jwt
 from random import choice
 
 from passlib.hash import pbkdf2_sha256 as sha256
 from sqlalchemy import create_engine, Boolean, Column, ForeignKey, Integer, DATE, String, DateTime, TIMESTAMP, func, \
-    Numeric, UniqueConstraint, select
+    Numeric, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
@@ -41,6 +42,7 @@ class User(Base):
     unit_weight = Column(String(10), default="METRIC")
     unit_distance = Column(String(10), default="MI")
     unit_temperature = Column(String(10), default="F")
+    currency = Column(String(10), default="USD")
 
     # Social profiles
     instagram_url = Column(String(500))
@@ -77,19 +79,13 @@ class User(Base):
                                          "Item.removed == False)",
                              cascade="all, delete-orphan")
 
-    packs = relationship("Pack",
+    trips = relationship("Trip",
                          backref="user",
                          lazy="joined",
-                         primaryjoin="and_(User.id == Pack.user_id, "
-                                     "Pack.removed == False)",
-                         order_by="desc(Pack.end_date)",
+                         primaryjoin="and_(User.id == Trip.user_id, "
+                                     "Trip.removed == False)",
+                         order_by="desc(Trip.end_date)",
                          cascade="all, delete-orphan")
-
-    categories = relationship("Category",
-                              lazy="joined",
-                              primaryjoin="or_(User.id == Category.user_id, "
-                                          "Category.user_id == None)",
-                              cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -101,6 +97,7 @@ class User(Base):
             "unit_weight": self.unit_weight,
             "unit_distance": self.unit_distance,
             "unit_temperature": self.unit_temperature,
+            "currency": self.currency,
             "banned": self.banned,
             "deactivated": self.deactivated,
             "email_verified": self.email_verified,
@@ -112,9 +109,7 @@ class User(Base):
             "snap_url": self.snap_url,
             "personal_url": self.personal_url,
 
-            "trips": self.packs
-            # "inventory": self.inventory,
-            # "categories": self.categories
+            "trips": self.trips
         }
 
     @staticmethod
@@ -136,19 +131,20 @@ class User(Base):
 
 class Item(Base):
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
     brand_id = Column(Integer, ForeignKey("brand.id"))
     product_id = Column(Integer, ForeignKey("product.id"))
-    category_id = Column(Integer, ForeignKey("category.id"))
+    category_id = Column(Integer, ForeignKey("itemcategory.id"))
+    sort_order = Column(Integer, default=0)
     removed = Column(Boolean, default=False)
 
     name = Column(String(100))
-    weight = Column(Numeric, default=0.0)
+    weight = Column(Numeric)
     unit = Column(String(10))
-    price = Column(Numeric, default=0.0)
-    consumable = Column(Boolean, default=False)
+    price = Column(Numeric)
+    consumable = Column(Boolean)
     product_url = Column(String(250))
-    wishlist = Column(Boolean, default=False)
+    wishlist = Column(Boolean)
     notes = Column(String(1000))
 
     created_at = Column(
@@ -158,18 +154,25 @@ class Item(Base):
     # Relationships
     brand = relationship("Brand", lazy="joined")
     product = relationship("Product", lazy="joined")
-    category = relationship("Category", lazy="joined")
+    category = relationship("ItemCategory",
+                            lazy="joined",
+                            foreign_keys=[category_id],
+                            uselist=False)
 
 
 class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"))
-    name = Column(String(100), unique=True)
-    consumable = Column(Boolean, default=False)
+    name = Column(String(50))
 
-    # Ensure category is unique per user
-    __table_args__ = (UniqueConstraint(
-        'user_id', 'name', name='_user_category_uc'),)
+
+class ItemCategory(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('user.id'))
+    category_id = Column(Integer, ForeignKey('category.id'))
+    sort_order = Column(Integer, default=0)
+
+    category = relationship("Category", lazy="joined", uselist=False)
 
 
 class Brand(Base):
@@ -196,6 +199,7 @@ class PackItem(Base):
     item_id = Column(Integer, ForeignKey("item.id"), primary_key=True)
     quantity = Column(Numeric, default=1)
     worn = Column(Boolean, default=False)
+    sort_order = Column(Numeric, default=0)
 
     # Relationship
     item = relationship("Item", lazy="joined")
@@ -219,43 +223,39 @@ class Post(Base):
 class Pack(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    trip_id = Column(Integer, ForeignKey("trip.id"))
+    title = Column(String(500), nullable=False)
 
+    # Relationships
+    items = relationship("PackItem", lazy="joined")
+
+
+class Trip(Base):
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+
+    title = Column(String(500), nullable=False)
+    location = Column(String(500))
     start_date = Column(DATE)
     end_date = Column(DATE)
-    region = Column(String(500), nullable=False)
-    trail_name = Column(String(500))
+
     temp_min = Column(Integer)
     temp_max = Column(Integer)
     distance = Column(Numeric)
-    planning_notes = Column(String(2500))
     notes = Column(String(2500))
-    public = Column(Boolean, default=False)
+    published = Column(Boolean, default=False)
     removed = Column(Boolean, default=False)
 
     created_at = Column(
         DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
-    # Associated item count queried at load
-    # item_count = column_property(
-    #     select([func.count(PackItem.pack_id)]).where(
-    #         PackItem.pack_id == id).correlate_except(PackItem)
-    # )
-
     # Relationships
-    items = relationship("PackItem")
-    conditions = relationship("PackCondition", lazy="joined")
-    geographies = relationship("PackGeography", lazy="joined")
+    conditions = relationship("TripCondition", lazy="joined")
+    geographies = relationship("TripGeography", lazy="joined")
     images = relationship("Image",
                           lazy="joined",
                           order_by="Image.sort_order")
-
-    @hybrid_property
-    def items_by_category(self):
-        if not self.items:
-            return []
-
-        return group_by_category(self.items)
 
 
 class Condition(Base):
@@ -275,7 +275,7 @@ class Image(Base):
     sort_order = Column(Integer, default=0)
     caption = Column(String(500))
 
-    pack_id = Column(Integer, ForeignKey("pack.id"))
+    trip_id = Column(Integer, ForeignKey("trip.id"))
     item_id = Column(Integer, ForeignKey("item.id"))
     post_id = Column(Integer, ForeignKey("post.id"))
 
@@ -294,11 +294,11 @@ class Image(Base):
     # Defines the asset url
     @s3.setter
     def s3(self, metadata):
-        entity = metadata['entity']  # pack, image, post or avatar
+        entity = metadata['entity']  # trip, image, post or avatar
         extension = '.png'
 
         # entity path segment
-        entity_id = self.pack_id or self.item_id or self.post_id
+        entity_id = self.trip_id or self.item_id or self.post_id
         entity_path = ''
         if entity_id:
             entity_path = f'/{entity_id}'
@@ -319,8 +319,8 @@ class Image(Base):
     likes = relationship("LikeImage", backref="image")
 
 
-class PackCondition(Base):
-    pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
+class TripCondition(Base):
+    trip_id = Column(Integer, ForeignKey("trip.id"), primary_key=True)
     condition_id = Column(Integer, ForeignKey(
         "condition.id"), primary_key=True)
 
@@ -328,8 +328,8 @@ class PackCondition(Base):
     condition = relationship("Condition", lazy="joined")
 
 
-class PackGeography(Base):
-    pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
+class TripGeography(Base):
+    trip_id = Column(Integer, ForeignKey("trip.id"), primary_key=True)
     geography_id = Column(Integer, ForeignKey(
         "geography.id"), primary_key=True)
 
@@ -341,7 +341,7 @@ class Comment(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), nullable=False)
     post_id = Column(Integer, ForeignKey("post.id"))
-    pack_id = Column(Integer, ForeignKey("pack.id"))
+    trip_id = Column(Integer, ForeignKey("trip.id"))
     comment = Column(String(1000), nullable=False)
     removed = Column(Boolean, default=False)
 
@@ -363,9 +363,9 @@ class LikePost(Base):
     post_id = Column(Integer, ForeignKey("post.id"), primary_key=True)
 
 
-class LikePack(Base):
+class LikeTrip(Base):
     user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
-    pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
+    trip_id = Column(Integer, ForeignKey("trip.id"), primary_key=True)
 
 
 class LikeComment(Base):
@@ -382,7 +382,7 @@ class Reported(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
     post_id = Column(Integer, ForeignKey("post.id"))
-    pack_id = Column(Integer, ForeignKey("pack.id"))
+    trip_id = Column(Integer, ForeignKey("trip.id"))
 
     created_at = Column(
         DateTime, default=datetime.datetime.utcnow, nullable=False)

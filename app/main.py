@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
 from consts import DATABASE_URL
-from api import user, resources, item, pack, category
+from api import user, resources, item, trip, category, pack
 
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
@@ -45,6 +45,13 @@ app.include_router(
     responses={404: {"description": "Not found"}}
 )
 
+
+app.include_router(
+    trip.route,
+    prefix="/trip",
+    tags=["trip"],
+    responses={404: {"description": "Not found"}}
+)
 
 app.include_router(
     pack.route,

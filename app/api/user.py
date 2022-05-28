@@ -1,6 +1,5 @@
 from io import BytesIO
 
-from sqlalchemy.sql.functions import user
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from sqlalchemy import func
@@ -97,6 +96,8 @@ class UserUpdate(BaseModel):
     bio: str = None
     unit_distance: str = None
     unit_temperature: str = None
+    unit_weight: str = None
+    currency: str = None
     facebook_url: str = None
     instagram_url: str = None
     youtube_url: str = None
@@ -158,6 +159,16 @@ def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticat
 
 @route.get("")
 def fetch(user: User = Depends(authenticate)):
+    return user.to_dict()
+
+
+@route.get("/id/{id}")
+def get_profile(id):
+    user = db.session.query(User).filter_by(id=id).first()
+
+    if not user:
+        raise HTTPException(400, "User does not exist.")
+
     return user.to_dict()
 
 
