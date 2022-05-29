@@ -1,4 +1,5 @@
 import csv
+from unicodedata import name
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
@@ -6,9 +7,10 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
-from models.base import Brand, Condition, Geography, Product, User
+from models.base import Brand, Condition, Geography, Product, User, Category
 from utils.auth import authenticate
 from utils.digital_ocean import s3_client
+from seed.categories import default_categories
 
 route = APIRouter()
 
@@ -104,6 +106,8 @@ def create_brand(payload: CreateProduct, user: User = Depends(authenticate)):
 # DEVELOPMENT :: SEED DATABASE
 @route.get("/seed")
 def seed_data():
+
+    # Brands
     with open('seed/brands.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
@@ -112,6 +116,18 @@ def seed_data():
                 db.session.add(brand)
                 db.session.commit()
             except IntegrityError as e:
+                db.session.rollback()
+
+    # Default categories
+    for category in default_categories():
+        cat = db.session.query(Category).filter_by(name=category).first()
+        if not cat:
+            seed_category = Category(name=category)
+            try:
+                db.session.add(seed_category)
+                db.session.commit()
+            except Exception as e:
+                print(e)
                 db.session.rollback()
 
     return
