@@ -1,6 +1,17 @@
-# https://github.com/tiangolo/uvicorn-gunicorn-fastapi-docker
-FROM tiangolo/uvicorn-gunicorn-fastapi:python3.8
+# 
+FROM python:3.9
+
+# 
 WORKDIR /app
-COPY requirements.txt /app/requirements.txt
-RUN pip install -r requirements.txt
-COPY ./app /app
+
+# 
+COPY ./requirements.txt /app/requirements.txt
+
+# 
+RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
+
+# 
+COPY ./app /app/app
+
+# 
+CMD ["uvicorn", "app.main:app", "--proxy-headers", "--host", "0.0.0.0", "--port", "80"]
