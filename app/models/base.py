@@ -131,7 +131,7 @@ class User(Base):
 
 class Item(Base):
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("user.id"))
     brand_id = Column(Integer, ForeignKey("brand.id"))
     product_id = Column(Integer, ForeignKey("product.id"))
     category_id = Column(Integer, ForeignKey("itemcategory.id"))
