@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
-from consts import DATABASE_URL
+from utils.consts import DATABASE_URL
 from api import user, resources, item, trip, category, pack
 
 app = FastAPI()

@@ -11,7 +11,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
-from consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION, DO_CDN
+from utils.consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION, DO_CDN
 from utils.utils import group_by_category
 
 engine = create_engine(DATABASE_URL)

@@ -1,7 +1,7 @@
 import os
 import boto3
 from botocore.exceptions import ClientError
-from consts import DO_REGION, DO_SPACES_KEY, DO_SPACES_SECRET_KEY, DO_BUCKET
+from utils.consts import DO_REGION, DO_SPACES_KEY, DO_SPACES_SECRET_KEY, DO_BUCKET
 
 s3_client = boto3.client(
     's3',

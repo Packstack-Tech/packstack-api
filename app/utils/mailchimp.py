@@ -1,7 +1,7 @@
 import mailchimp_marketing as MailchimpMarketing
 from mailchimp_marketing.api_client import ApiClientError
 
-from consts import MAILCHIMP_API_KEY, MAILCHIMP_AUDIENCE_ID
+from utils.consts import MAILCHIMP_API_KEY, MAILCHIMP_AUDIENCE_ID
 
 
 def mailchimp_connect():
