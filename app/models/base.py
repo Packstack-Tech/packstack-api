@@ -202,7 +202,10 @@ class PackItem(Base):
     sort_order = Column(Numeric, default=0)
 
     # Relationship
-    item = relationship("Item", lazy="joined")
+    item = relationship("Item",
+                        lazy="joined",
+                        foreign_keys=[item_id],
+                        uselist=False)
 
 
 class Post(Base):
