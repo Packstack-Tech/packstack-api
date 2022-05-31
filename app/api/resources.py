@@ -108,7 +108,7 @@ def create_brand(payload: CreateProduct, user: User = Depends(authenticate)):
 def seed_data():
 
     # Brands
-    with open('seed/brands.csv', newline='') as csvfile:
+    with open('app/seed/brands.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
             brand = Brand(name=row[0])
