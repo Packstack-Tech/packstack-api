@@ -14,7 +14,8 @@ app.add_middleware(
         'http://localhost:3000',
         'http://127.0.0.1:3000',
         'https://packstack.io',
-        'https://beta.packstack.io'
+        'https://staging.packstack.io',
+        'https://packstack-social.vercel.app'
     ],
     allow_credentials=True,
     allow_methods=["*"],
