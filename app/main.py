@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
 from utils.consts import DATABASE_URL
@@ -8,19 +8,19 @@ from api import user, resources, item, trip, category, pack
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        'http://localhost:3000',
-        'http://127.0.0.1:3000',
-        'https://packstack.io',
-        'https://staging.packstack.io',
-        'https://packstack-social.vercel.app'
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=[
+#         'http://localhost:3000',
+#         'http://127.0.0.1:3000',
+#         'https://packstack.io',
+#         'https://staging.packstack.io',
+#         'https://packstack-social.vercel.app'
+#     ],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 
 app.include_router(
