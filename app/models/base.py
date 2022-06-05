@@ -8,11 +8,9 @@ from sqlalchemy import create_engine, Boolean, Column, ForeignKey, Integer, DATE
     Numeric, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.ext.orderinglist import ordering_list
 from sqlalchemy.orm import sessionmaker, relationship, column_property
 
 from utils.consts import JWT_SECRET, JWT_ALGORITHM, DATABASE_URL, DO_BUCKET, DO_REGION, DO_CDN
-from utils.utils import group_by_category
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -199,6 +197,7 @@ class PackItem(Base):
     item_id = Column(Integer, ForeignKey("item.id"), primary_key=True)
     quantity = Column(Numeric, default=1)
     worn = Column(Boolean, default=False)
+    checked = Column(Boolean, default=False)
     sort_order = Column(Numeric, default=0)
 
     # Relationship
