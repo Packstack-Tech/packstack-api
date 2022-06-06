@@ -32,6 +32,7 @@ class PackItemType(BaseModel):
     item_id: int
     quantity: float = None
     worn: bool = False
+    checked: bool = False
     sort_order: int = 0
 
 
@@ -58,6 +59,7 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
                             item_id=item.item_id,
                             quantity=item.quantity,
                             worn=item.worn,
+                            checked=item.checked,
                             sort_order=item.sort_order)
 
         db.session.add(new_item)
@@ -106,3 +108,24 @@ def update_pack(id, payload: PackType, user: User = Depends(authenticate)):
         raise HTTPException(400, "An error occurred while adding pack items.")
 
     return pack
+
+
+class PackItemToggle(BaseModel):
+    checked: bool
+
+
+@route.put("/{pack_id}/item/{item_id}")
+def update_pack_item(pack_id, item_id, payload: PackItemToggle, user: User = Depends(authenticate)):
+    item = db.session.query(PackItem).filter_by(
+        pack_id=pack_id, item_id=item_id).first()
+
+    if not item:
+        raise HTTPException(400, "Pack item does not exist.")
+
+    try:
+        item.checked = payload.checked
+        db.session.commit()
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while updating pack item.")
+
+    return True
