@@ -182,7 +182,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         brand_id = None
         if brand:
             brand_entity = db.session.query(
-                Brand.id).filter(Brand.name == brand).first()
+                Brand.id).filter(Brand.name == brand.strip()).first()
             if brand_entity:
                 brand_id = brand_entity[0]
 
