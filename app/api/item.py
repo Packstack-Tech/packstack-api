@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+import csv
+
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
+from io import StringIO
+from sqlalchemy import or_
 
-from models.base import User, Item, ItemCategory
+from models.base import User, Item, ItemCategory, Category, Brand, Product
 from utils.auth import authenticate
 from utils.item_category import get_or_create_item_category
 
@@ -118,7 +122,8 @@ def sort_items(categories: SortItems, user: User = Depends(authenticate)):
 
 @route.get("s")
 def fetch(user: User = Depends(authenticate)):
-    items = db.session.query(Item).filter_by(user_id=user.id, removed=False).all()
+    items = db.session.query(Item).filter_by(
+        user_id=user.id, removed=False).all()
     return items
 
 
@@ -132,3 +137,108 @@ def remove(item_id, user: User = Depends(authenticate)):
     db.session.refresh(item)
 
     return item
+
+
+@route.post("/import")
+async def import_items(file: UploadFile = File(...), user: User = Depends(authenticate)):
+    categories = db.session.query(Category).filter(
+        or_(Category.user_id == user.id, Category.user_id == None)).all()
+    contents = await file.read()
+    decoded = contents.decode()
+    buffer = StringIO(decoded)
+    csvReader = csv.DictReader(buffer)
+
+    rows = [dict((k.lower().strip(), v.strip())
+                 for k, v in row.items()) for row in csvReader]
+    buffer.close()
+
+    def generate_error(line, message):
+        return dict({'line': line, 'error': message})
+
+    entries = []
+    errors = []
+    for i, row in enumerate(rows):
+        name = row.get("name")
+        brand = row.get("manufacturer")
+        product = row.get("product")
+        category = row.get("category")
+        weight = row.get("weight")
+        unit = row.get("unit")
+        product_url = row.get("url")
+        price = row.get("price")
+        notes = row.get("notes")
+
+        if not name:
+            errors.append(generate_error(i, 'Name cannot be empty'))
+            continue
+
+        if unit:
+            unit = unit.lower().strip()
+            if unit not in ['g', 'kg', 'oz', 'lb']:
+                errors.append(generate_error(
+                    i, 'Invalid unit. Must be one of: g, kg, oz, lb'))
+                continue
+
+        brand_id = None
+        if brand:
+            brand_entity = db.session.query(
+                Brand.id).filter(Brand.name == brand).first()
+            if brand_entity:
+                brand_id = brand_entity[0]
+
+        product_id = None
+        if brand_id and product:
+            product_entity = db.session.query(Product.id).filter(
+                Product.name == product, Product.brand_id == brand_id).first()
+            if product_entity:
+                product_id = product_entity[0]
+
+        category_id = None
+        if category:
+            category_id = next(
+                (cat.id for cat in categories if cat.name == category), None)
+
+            if category_id:
+                item_category_entity = db.session.query(ItemCategory.id).filter(
+                    ItemCategory.category_id == category_id, ItemCategory.user_id == user.id).first()
+
+                if item_category_entity:
+                    category_id = item_category_entity[0]
+
+                else:
+                    new_item_category = ItemCategory(
+                        user_id=user.id, category_id=category_id)
+                    try:
+                        db.session.add(new_item_category)
+                        db.session.commit()
+                        db.session.refresh(new_item_category)
+                        category_id = new_item_category.id
+                    except Exception as e:
+                        print(e)
+                        category_id = None
+                        db.session.rollback()
+
+        entries.append(dict(user_id=user.id,
+                            brand_id=brand_id,
+                            product_id=product_id,
+                            category_id=category_id,
+                            name=name,
+                            weight=weight,
+                            unit=unit,
+                            price=price,
+                            product_url=product_url,
+                            notes=notes))
+
+    if errors:
+        return {'success': False, 'errors': errors, 'count': len(errors)}
+
+    try:
+        db.session.bulk_insert_mappings(Item, entries)
+        db.session.commit()
+    except Exception as e:
+        print(e)
+        db.session.rollback()
+        raise HTTPException(
+            400, 'An unexpected error occurred while importing items.')
+
+    return {'success': True, 'errors': [], 'count': len(entries)}
