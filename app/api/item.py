@@ -193,6 +193,17 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
             if product_entity:
                 product_id = product_entity[0]
 
+            else:
+                new_product = Product(brand_id=brand_id, name=product.strip())
+                try:
+                    db.session.add(new_product)
+                    db.session.commit()
+                    db.session.refresh(new_product)
+                    product_id = new_product.id
+                except Exception:
+                    product_id = None
+                    db.session.rollback()
+
         category_id = None
         if category:
             category_id = next(
@@ -214,7 +225,6 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
                         db.session.refresh(new_item_category)
                         category_id = new_item_category.id
                     except Exception as e:
-                        print(e)
                         category_id = None
                         db.session.rollback()
 
