@@ -181,20 +181,33 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
 
         brand_id = None
         if brand:
+            brand = brand.strip()
             brand_entity = db.session.query(
-                Brand.id).filter(Brand.name == brand.strip()).first()
+                Brand.id).filter(Brand.name == brand).first()
             if brand_entity:
                 brand_id = brand_entity[0]
 
+            else:
+                new_brand = Brand(name=brand)
+                try:
+                    db.session.add(new_brand)
+                    db.session.commit()
+                    db.session.refresh(new_brand)
+                    brand_id = new_brand.id
+                except Exception:
+                    brand_id = None
+                    db.session.rollback()
+
         product_id = None
         if brand_id and product:
+            product = product.strip()
             product_entity = db.session.query(Product.id).filter(
                 Product.name == product, Product.brand_id == brand_id).first()
             if product_entity:
                 product_id = product_entity[0]
 
             else:
-                new_product = Product(brand_id=brand_id, name=product.strip())
+                new_product = Product(brand_id=brand_id, name=product)
                 try:
                     db.session.add(new_product)
                     db.session.commit()
