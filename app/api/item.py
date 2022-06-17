@@ -153,7 +153,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
     buffer.close()
 
     def generate_error(line, message):
-        return dict({'line': line, 'error': message})
+        return dict({'line': line + 1, 'error': message})
 
     entries = []
     errors = []
@@ -174,6 +174,8 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
 
         if unit:
             unit = unit.lower().strip()
+            if unit == 'lbs':
+                unit = 'lb'
             if unit not in ['g', 'kg', 'oz', 'lb']:
                 errors.append(generate_error(
                     i, 'Invalid unit. Must be one of: g, kg, oz, lb'))
@@ -260,7 +262,6 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         db.session.bulk_insert_mappings(Item, entries)
         db.session.commit()
     except Exception as e:
-        print(e)
         db.session.rollback()
         raise HTTPException(
             400, 'An unexpected error occurred while importing items.')
