@@ -140,9 +140,9 @@ class Item(Base):
     weight = Column(Numeric)
     unit = Column(String(10))
     price = Column(Numeric)
-    consumable = Column(Boolean)
+    consumable = Column(Boolean, default=False)
     product_url = Column(String(250))
-    wishlist = Column(Boolean)
+    wishlist = Column(Boolean, default=False)
     notes = Column(String(1000))
 
     created_at = Column(

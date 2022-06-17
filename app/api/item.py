@@ -237,7 +237,8 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
                             unit=unit,
                             price=price,
                             product_url=product_url,
-                            notes=notes))
+                            notes=notes,
+                            consumable=False))
 
     if errors:
         return {'success': False, 'errors': errors, 'count': len(errors)}
