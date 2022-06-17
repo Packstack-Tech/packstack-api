@@ -153,7 +153,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
     buffer.close()
 
     def generate_error(line, message):
-        return dict({'line': line + 1, 'error': message})
+        return dict({'line': line + 2, 'error': message})
 
     entries = []
     errors = []
