@@ -28,6 +28,20 @@ def fetch():
     return trips
 
 
+@route.get("/sitemap")
+def get_sitemap():
+    trips = db.session.query(Trip.id, Trip.title, Trip.updated_at).filter_by(
+        removed=False, published=True).all()
+
+    data = [{
+        'id': trip.id,
+        'title': trip.title,
+        'updated_at': trip.updated_at
+    } for trip in trips]
+
+    return data
+
+
 class TripType(BaseModel):
     title: str
     location: str = None
