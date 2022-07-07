@@ -229,7 +229,7 @@ class Pack(Base):
     title = Column(String(500), nullable=False)
 
     # Relationships
-    items = relationship("PackItem", lazy="joined")
+    items = relationship("PackItem", lazy="joined", cascade="all, delete-orphan")
 
 
 class Trip(Base):

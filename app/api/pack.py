@@ -129,3 +129,18 @@ def update_pack_item(pack_id, item_id, payload: PackItemToggle, user: User = Dep
         raise HTTPException(400, "An error occurred while updating pack item.")
 
     return True
+
+@route.delete("/{pack_id}")
+def delete_pack(pack_id, user: User = Depends(authenticate)):
+    pack = db.session.query(Pack).filter_by(id=pack_id, user_id=user.id).first()
+
+    if not pack:
+        raise HTTPException(400, "Pack does not exist.")
+
+    try:
+        db.session.delete(pack)
+        db.session.commit()
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while deleting pack.")
+
+    return True

@@ -8,7 +8,7 @@ from typing import List
 from sqlalchemy.orm import joinedload
 from PIL import Image as PILImage, ImageOps
 
-from models.base import User, Trip, Image, TripGeography, TripCondition
+from models.base import User, Trip, Image, TripGeography, TripCondition, Pack
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload, s3_file_delete
 
@@ -247,6 +247,10 @@ def remove_trip(trip_id, user: User = Depends(authenticate)):
         s3_file_delete(image.s3_key)
         s3_file_delete(image.s3_key_thumb)
         db.session.delete(image)
+
+    linked_packs = db.session.query(Pack).filter_by(user_id=user.id, trip_id=trip.id).all()
+    for pack in linked_packs:
+        pack.trip_id = None
 
     try:
         trip.removed = True
