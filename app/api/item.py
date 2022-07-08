@@ -169,7 +169,6 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         notes = row.get("notes", None)
 
         if not name:
-            errors.append(generate_error(i, 'Name cannot be empty'))
             continue
 
         if unit:
