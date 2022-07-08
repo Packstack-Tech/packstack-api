@@ -165,8 +165,8 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         weight = row.get("weight")
         unit = row.get("unit")
         product_url = row.get("url")
-        price = row.get("price")
-        notes = row.get("notes")
+        price = row.get("price", None)
+        notes = row.get("notes", None)
 
         if not name:
             errors.append(generate_error(i, 'Name cannot be empty'))
@@ -190,6 +190,16 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
                 errors.append(generate_error(
                     i, 'Invalid unit. Must be one of: g, kg, oz, lb'))
                 continue
+
+        if weight:
+            weight = float(weight)
+        else:
+            weight = None
+
+        if price:
+            price = float(price)
+        else:
+            price = None
 
         brand_id = None
         if brand:
