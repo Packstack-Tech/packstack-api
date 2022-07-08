@@ -174,8 +174,18 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
 
         if unit:
             unit = unit.lower().strip()
-            if unit == 'lbs':
+            if unit == 'gram' or unit == 'grams':
+                unit = 'g'
+
+            if unit == 'kilogram' or unit == 'kilograms':
+                unit = 'kg'
+
+            if unit == 'ounce' or unit == 'ounces':
+                unit = 'oz'
+
+            if unit == 'lbs' or unit == 'pound' or unit == 'pounds':
                 unit = 'lb'
+
             if unit not in ['g', 'kg', 'oz', 'lb']:
                 errors.append(generate_error(
                     i, 'Invalid unit. Must be one of: g, kg, oz, lb'))
