@@ -1,3 +1,4 @@
+from email.policy import HTTP
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
@@ -130,9 +131,33 @@ def update_pack_item(pack_id, item_id, payload: PackItemToggle, user: User = Dep
 
     return True
 
+
+class AssignPack(BaseModel):
+    trip_id: int = None
+
+
+@route.put("/{pack_id}/assign")
+def assign_pack(pack_id, payload: AssignPack, user: User = Depends(authenticate)):
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
+
+    if not pack:
+        raise HTTPException(400, "Pack does not exist.")
+
+    pack.trip_id = payload.trip_id
+    try:
+        db.session.commit()
+        db.session.refresh(pack)
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while assigning pack.")
+
+    return pack
+
+
 @route.delete("/{pack_id}")
 def delete_pack(pack_id, user: User = Depends(authenticate)):
-    pack = db.session.query(Pack).filter_by(id=pack_id, user_id=user.id).first()
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
 
     if not pack:
         raise HTTPException(400, "Pack does not exist.")
