@@ -41,6 +41,7 @@ class User(Base):
     unit_distance = Column(String(10), default="MI")
     unit_temperature = Column(String(10), default="F")
     currency = Column(String(10), default="USD")
+    hide_table_headers = Column(Boolean, default=False)
 
     # Social profiles
     instagram_url = Column(String(500))
@@ -99,6 +100,7 @@ class User(Base):
             "banned": self.banned,
             "deactivated": self.deactivated,
             "email_verified": self.email_verified,
+            "hide_table_headers": self.hide_table_headers,
 
             "instagram_url": self.instagram_url,
             "youtube_url": self.youtube_url,

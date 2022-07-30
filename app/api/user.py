@@ -104,6 +104,7 @@ class UserUpdate(BaseModel):
     twitter_url: str = None
     snap_url: str = None
     personal_url: str = None
+    hide_table_headers: bool = None
 
 
 @route.put("")
