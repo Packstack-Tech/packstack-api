@@ -149,7 +149,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
     csvReader = csv.DictReader(buffer)
 
     rows = [dict((k.lower().strip(), v.strip())
-                 for k, v in row.items()) for row in csvReader]
+                 for k, v in row.items() if k) for row in csvReader]
     buffer.close()
 
     def generate_error(line, message):
