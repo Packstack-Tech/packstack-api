@@ -143,7 +143,7 @@ class Item(Base):
     unit = Column(String(10))
     price = Column(Numeric)
     consumable = Column(Boolean, default=False)
-    product_url = Column(String(250))
+    product_url = Column(String(1000))
     wishlist = Column(Boolean, default=False)
     notes = Column(String(1000))
 
