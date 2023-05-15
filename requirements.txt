@@ -15,4 +15,4 @@ Pillow==8.4.0
 fastapi>=0.78
 pydantic>=1.8.0,<2.0.0
 uvicorn>=0.15.0,<0.16.0
-git+https://maplethorpej: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@github.com/Packstack-Tech/models.git@v1.0.2#egg=models
+git+https://maplethorpej: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@github.com/Packstack-Tech/models.git@v1.0.3#egg=models
