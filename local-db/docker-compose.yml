@@ -1,21 +1,9 @@
 version: '3.7'
 
 services:
-  web:
-    build: .
-    ports:
-      - 80:80
-    depends_on:
-      - postgres
-    env_file:
-      - .env
-
-    networks:
-      - packstack
-
   postgres:
     restart: always
-    image: postgres:11.3-alpine
+    image: postgres:14.5-alpine
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: password

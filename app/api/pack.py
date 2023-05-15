@@ -1,11 +1,9 @@
-from email.policy import HTTP
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
-from sqlalchemy.orm import joinedload
 
-from models.base import User, Trip, Pack, PackItem
+from models.base import User, Pack, PackItem
 from utils.auth import authenticate
 
 route = APIRouter()

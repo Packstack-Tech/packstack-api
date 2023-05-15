@@ -1,12 +1,15 @@
 # Packstack API
 Packstack API server
 
-### Run server locally
+### Run local database
+- `cd local-db`
 - `docker-compose up --build`
 
-### Apply a migration locally
-- Make sure the database is up and available
-- From `/app`, run `. ./migrate.local.sh`
-- Enter commit message and hit enter
-- NOTE: You may need to `pip install -r requirements.txt`
+### Build local docker image
+`docker build -t packstack-api:latest .`
 
+### Run local docker image
+`docker run -p 80:80 --env-file=.local.env packstack-api:latest`
+
+### Run production docker image
+`docker run -p 80:80 --env-file=.prod.env packstack-api:latest`

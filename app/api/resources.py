@@ -1,5 +1,4 @@
 import csv
-from unicodedata import name
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db

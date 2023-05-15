@@ -1,5 +1,4 @@
 from fastapi import Header, HTTPException
-from jwt import PyJWTError
 from fastapi_sqlalchemy import db
 
 from models.base import User
@@ -13,7 +12,7 @@ def authenticate(*, Authorization: str = Header(None)):
     try:
         token = Authorization.split(" ")[1]
         decoded_token = User.decode_jwt(token)
-    except PyJWTError:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid or missing token.")
 
     # Fetch user from token payload

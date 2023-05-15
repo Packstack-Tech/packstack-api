@@ -2,8 +2,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
+# from sqlalchemy import create_engine
+# from models.base import Base
+
 from utils.consts import DATABASE_URL
 from api import user, resources, item, trip, category, pack
+
+# Create the database tables
+# engine = create_engine(DATABASE_URL)
+# Base.metadata.create_all(engine)
 
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
