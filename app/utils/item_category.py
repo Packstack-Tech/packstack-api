@@ -2,9 +2,6 @@ from fastapi import HTTPException
 from models.base import ItemCategory
 
 def get_or_create_item_category(session, category_id, user_id):
-    if not category_id:
-        return None
-
     item_category = session.query(ItemCategory).filter_by(
         category_id=category_id, user_id=user_id).first()
 

@@ -5,7 +5,7 @@ from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
 from io import StringIO
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 
 from models.base import User, Item, ItemCategory, Category, Brand, Product
 from utils.auth import authenticate
@@ -17,8 +17,11 @@ route = APIRouter()
 class ItemType(BaseModel):
     name: str
     brand_id: int = None
+    brand_new: str = None
     product_id: int = None
+    product_new: str = None
     category_id: int = None
+    category_new: str = None
     weight: float = None
     unit: str = None
     price: float = None
@@ -27,14 +30,68 @@ class ItemType(BaseModel):
     wishlist: bool = None
     notes: str = None
 
+# TODO functionize brand/product/category creation
+
 
 @route.post("")
 def create(payload: ItemType, user: User = Depends(authenticate)):
-    item_category_id = get_or_create_item_category(
-        db.session, payload.category_id, user.id)
-    payload.category_id = item_category_id
+    # If brand_new is provided, create a new brand
+    if payload.brand_new:
+        new_brand = payload.brand_new.strip()
+        existing_brand = db.session.query(Brand).filter(
+            func.lower(payload.brand_new) == new_brand.lower()).first()
 
-    new_item = Item(user_id=user.id, **payload.dict())
+        if existing_brand:
+            payload.brand_id = existing_brand.id
+        else:
+            brand = Brand(name=new_brand)
+            db.session.add(brand)
+            db.session.commit()
+            db.session.refresh(brand)
+            payload.brand_id = brand.id
+
+    # If product_new is provided, create a new product and assign brand_id
+    if payload.product_new and payload.brand_id:
+        new_product = payload.product_new.strip()
+        existing_product = db.session.query(Product).filter(
+            func.lower(payload.product_new) == new_product.lower()).first()
+
+        if existing_product:
+            payload.product_id = existing_product.id
+        else:
+            product = Product(name=new_product, brand_id=payload.brand_id)
+            db.session.add(product)
+            db.session.commit()
+            db.session.refresh(product)
+            payload.product_id = product.id
+
+    # If category_new is provided, create a new category
+    if payload.category_new:
+        new_category = payload.category_new.strip()
+        existing_category = db.session.query(Category).filter(
+            func.lower(payload.category_new) == new_category.lower()).first()
+
+        if existing_category:
+            payload.category_id = existing_category.id
+        else:
+            category = Category(name=new_category, user_id=user.id)
+            db.session.add(category)
+            db.session.commit()
+            db.session.refresh(category)
+            payload.category_id = category.id
+
+    # Creates an item-specific category for the user
+    if payload.category_id:
+        payload.category_id = get_or_create_item_category(
+            db.session, payload.category_id, user.id)
+
+    # Remove data-creation fields from dict
+    item_data = payload.dict()
+    item_data.pop("product_new")
+    item_data.pop("brand_new")
+    item_data.pop("category_new")
+
+    new_item = Item(user_id=user.id, **item_data)
 
     try:
         db.session.add(new_item)
@@ -53,9 +110,60 @@ class ItemUpdate(ItemType):
 
 @route.put("")
 def update(payload: ItemUpdate, user: User = Depends(authenticate)):
-    item_category_id = get_or_create_item_category(
-        db.session, payload.category_id, user.id)
-    payload.category_id = item_category_id
+    # If brand_new is provided, create a new brand
+    if payload.brand_new:
+        new_brand = payload.brand_new.strip()
+        existing_brand = db.session.query(Brand).filter(
+            func.lower(payload.brand_new) == new_brand.lower()).first()
+
+        if existing_brand:
+            payload.brand_id = existing_brand.id
+        else:
+            brand = Brand(name=new_brand)
+            db.session.add(brand)
+            db.session.commit()
+            db.session.refresh(brand)
+            payload.brand_id = brand.id
+
+    # If product_new is provided, create a new product and assign brand_id
+    if payload.product_new and payload.brand_id:
+        new_product = payload.product_new.strip()
+        existing_product = db.session.query(Product).filter(
+            func.lower(payload.product_new) == new_product.lower()).first()
+
+        if existing_product:
+            payload.product_id = existing_product.id
+        else:
+            product = Product(name=new_product, brand_id=payload.brand_id)
+            db.session.add(product)
+            db.session.commit()
+            db.session.refresh(product)
+            payload.product_id = product.id
+
+    # If category_new is provided, create a new category
+    if payload.category_new:
+        new_category = payload.category_new.strip()
+        existing_category = db.session.query(Category).filter(
+            func.lower(payload.category_new) == new_category.lower()).first()
+
+        if existing_category:
+            payload.category_id = existing_category.id
+        else:
+            category = Category(name=new_category, user_id=user.id)
+            db.session.add(category)
+            db.session.commit()
+            db.session.refresh(category)
+            payload.category_id = category.id
+
+    if payload.category_id:
+        payload.category_id = get_or_create_item_category(
+            db.session, payload.category_id, user.id)
+
+    # Remove data-creation fields from dict
+    fields = payload.dict()
+    fields.pop("product_new")
+    fields.pop("brand_new")
+    fields.pop("category_new")
 
     item = db.session.query(Item).filter_by(
         id=payload.id, user_id=user.id).first()
@@ -63,7 +171,6 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     if not item:
         raise HTTPException(400, "Item not found.")
 
-    fields = payload.dict()
     for key, value in fields.items():
         setattr(item, key, value)
 
@@ -72,6 +179,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
         db.session.refresh(item)
     except Exception as e:
         print(e)
+        raise HTTPException(400, "Unable to update item.")
 
     return item
 
