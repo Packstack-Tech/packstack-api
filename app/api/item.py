@@ -39,7 +39,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     if payload.brand_new:
         new_brand = payload.brand_new.strip()
         existing_brand = db.session.query(Brand).filter(
-            func.lower(payload.brand_new) == new_brand.lower()).first()
+            func.lower(Brand.name) == new_brand.lower()).first()
 
         if existing_brand:
             payload.brand_id = existing_brand.id
@@ -54,7 +54,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     if payload.product_new and payload.brand_id:
         new_product = payload.product_new.strip()
         existing_product = db.session.query(Product).filter(
-            func.lower(payload.product_new) == new_product.lower()).first()
+            func.lower(Product.name) == new_product.lower()).first()
 
         if existing_product:
             payload.product_id = existing_product.id
@@ -69,7 +69,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     if payload.category_new:
         new_category = payload.category_new.strip()
         existing_category = db.session.query(Category).filter(
-            func.lower(payload.category_new) == new_category.lower()).first()
+            func.lower(Category.name) == new_category.lower()).first()
 
         if existing_category:
             payload.category_id = existing_category.id
@@ -114,7 +114,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     if payload.brand_new:
         new_brand = payload.brand_new.strip()
         existing_brand = db.session.query(Brand).filter(
-            func.lower(payload.brand_new) == new_brand.lower()).first()
+            func.lower(Brand.name) == new_brand.lower()).first()
 
         if existing_brand:
             payload.brand_id = existing_brand.id
@@ -129,7 +129,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     if payload.product_new and payload.brand_id:
         new_product = payload.product_new.strip()
         existing_product = db.session.query(Product).filter(
-            func.lower(payload.product_new) == new_product.lower()).first()
+            func.lower(Product.name) == new_product.lower()).first()
 
         if existing_product:
             payload.product_id = existing_product.id
@@ -144,7 +144,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     if payload.category_new:
         new_category = payload.category_new.strip()
         existing_category = db.session.query(Category).filter(
-            func.lower(payload.category_new) == new_category.lower()).first()
+            func.lower(Category.name) == new_category.lower()).first()
 
         if existing_category:
             payload.category_id = existing_category.id
