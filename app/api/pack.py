@@ -95,6 +95,7 @@ def update_pack(id, payload: PackType, user: User = Depends(authenticate)):
                             item_id=item.item_id,
                             quantity=item.quantity,
                             worn=item.worn,
+                            checked=item.checked,
                             sort_order=item.sort_order)
 
         db.session.add(new_item)
