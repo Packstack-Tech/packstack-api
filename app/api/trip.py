@@ -8,9 +8,10 @@ from typing import List
 from sqlalchemy.orm import joinedload
 from PIL import Image as PILImage, ImageOps
 
-from models.base import User, Trip, Image, TripGeography, TripCondition, Pack
+from models.base import User, Trip, Image, TripGeography, TripCondition, Pack, PackItem
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload, s3_file_delete
+from utils.utils import clone_model
 
 route = APIRouter()
 
@@ -153,6 +154,53 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
     return trip
 
 
+@route.post("/{trip_id}/clone")
+def clone(trip_id, user: User = Depends(authenticate)):
+    trip = db.session.query(Trip).filter_by(
+        id=trip_id, user_id=user.id).first()
+
+    if not trip:
+        raise HTTPException(400, "Trip not found.")
+
+    cloned_trip_data = clone_model(trip, ['title', 'location', 'created_at'])
+    cloned_trip = Trip(
+        **cloned_trip_data,
+        title=f"{trip.title} (Copy)",
+        location=f"{trip.location} (Copy)",
+        created_at=datetime.datetime.utcnow()
+    )
+
+    try:
+        db.session.add(cloned_trip)
+        db.session.commit()
+        db.session.refresh(cloned_trip)
+    except:
+        raise HTTPException(400, "An error occurred while cloning trip.")
+
+    packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
+    for pack in packs:
+        cloned_pack_data = clone_model(pack, ['trip_id'])
+        cloned_pack = Pack(**cloned_pack_data, trip_id=cloned_trip.id)
+        db.session.add(cloned_pack)
+        db.session.commit()
+        db.session.refresh(cloned_pack)
+
+        for item in pack.items:
+            cloned_item_data = clone_model(item)
+            cloned_item = PackItem(
+                **cloned_item_data,
+                pack_id=cloned_pack.id,
+                item_id=item.item_id
+            )
+            db.session.add(cloned_item)
+            db.session.commit()
+            db.session.refresh(cloned_item)
+
+    db.session.refresh(cloned_trip)
+
+    return cloned_trip
+
+
 @route.post("/{trip_id}/upload-image")
 def upload_image(trip_id, file: UploadFile = File(...), user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(id=trip_id).first()
@@ -248,7 +296,8 @@ def remove_trip(trip_id, user: User = Depends(authenticate)):
         s3_file_delete(image.s3_key_thumb)
         db.session.delete(image)
 
-    linked_packs = db.session.query(Pack).filter_by(user_id=user.id, trip_id=trip.id).all()
+    linked_packs = db.session.query(Pack).filter_by(
+        user_id=user.id, trip_id=trip.id).all()
     for pack in linked_packs:
         pack.trip_id = None
 

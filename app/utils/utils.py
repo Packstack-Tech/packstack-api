@@ -15,7 +15,7 @@ def list_difference(list1, list2):
 
 def group_by_category(pack_items):
     category_list = []
-    category_key = lambda x: x.item.category
+    def category_key(x): return x.item.category
     for key, group in groupby(pack_items, category_key):
         category_list.append({
             "category": key,
@@ -23,3 +23,14 @@ def group_by_category(pack_items):
         })
 
     return category_list
+
+
+def clone_model(model, ignore_keys=[]):
+    """Clone an arbitrary sqlalchemy model object without its primary key values."""
+
+    table = model.__table__
+    non_pk_columns = [
+        k for k in table.columns.keys() if k not in table.primary_key]
+    columns = [c for c in non_pk_columns if c not in ignore_keys]
+    data = {c: getattr(model, c) for c in columns}
+    return data
