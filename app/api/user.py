@@ -211,3 +211,37 @@ def request_password_reset(payload: RequestReset):
     send_reset_request(email, reset_request.callback_id)
 
     return Response(status_code=200)
+
+
+class PasswordResetData(BaseModel):
+    password: str
+    callback_id: str
+
+
+@route.post("/reset-password")
+def password_reset(payload: PasswordResetData):
+    password = payload.password.strip()
+    callback_id = payload.callback_id.strip()
+
+    reset_request = db.session.query(PasswordReset).filter_by(
+        callback_id=callback_id).first()
+
+    if not reset_request:
+        raise HTTPException(400, "Invalid request.")
+
+    user = db.session.query(User).filter_by(id=reset_request.user_id).first()
+
+    if not user:
+        raise HTTPException(400, "User does not exist.")
+
+    hashed_password = User.generate_hash(password)
+    user.password = hashed_password
+
+    try:
+        db.session.delete(reset_request)
+        db.session.commit()
+    except Exception as e:
+        print(e)
+        raise HTTPException(400, "An error occurred.")
+
+    return Response(status_code=200)
