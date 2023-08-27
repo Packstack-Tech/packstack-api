@@ -1,15 +1,16 @@
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Response
 from fastapi_sqlalchemy import db
 from sqlalchemy import func
 from pydantic import BaseModel
 from PIL import Image as PILImage, ImageOps
 
-from models.base import User, Image
+from models.base import User, Image, PasswordReset
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload
 from utils.mailchimp import add_contact
+from utils.sendgrid import send_reset_request
 
 route = APIRouter()
 
@@ -182,3 +183,31 @@ def get_profile(username):
         raise HTTPException(400, "User does not exist.")
 
     return user.to_dict()
+
+
+class RequestReset(BaseModel):
+    email: str
+
+
+@route.post("/request-password-reset")
+def request_password_reset(payload: RequestReset):
+    email = payload.email.strip().lower()
+    user = db.session.query(User).filter(
+        func.lower(User.email) == email).first()
+
+    if not user:
+        return Response(status_code=200)
+
+    reset_request = PasswordReset(user_id=user.id)
+    try:
+        db.session.add(reset_request)
+        db.session.commit()
+        db.session.refresh(reset_request)
+    except Exception as e:
+        print(e)
+        raise HTTPException(400, "An error occurred.")
+
+    # Send email
+    send_reset_request(email, reset_request.callback_id)
+
+    return Response(status_code=200)
