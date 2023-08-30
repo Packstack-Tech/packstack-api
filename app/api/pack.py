@@ -3,7 +3,7 @@ from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
 
-from models.base import User, Pack, PackItem
+from models.base import User, Pack, PackItem, Trip
 from utils.auth import authenticate
 
 route = APIRouter()
@@ -129,6 +129,41 @@ def update_pack_item(pack_id, item_id, payload: PackItemToggle, user: User = Dep
         raise HTTPException(400, "An error occurred while updating pack item.")
 
     return True
+
+
+@route.get("/unassigned")
+def get_unassigned_packs(user: User = Depends(authenticate)):
+    unassigned_packs = db.session.query(Pack).filter_by(
+        user_id=user.id, trip_id=None).all()
+
+    return unassigned_packs
+
+
+@route.post("/{pack_id}/generate")
+def generate_pack(pack_id, user: User = Depends(authenticate)):
+    pack = db.session.query(Pack).filter_by(
+        id=pack_id, user_id=user.id).first()
+
+    if not pack:
+        raise HTTPException(400, "Pack does not exist.")
+
+    trip = Trip(user_id=user.id, title=pack.title, location=pack.title)
+    try:
+        db.session.add(trip)
+        db.session.commit()
+        db.session.refresh(trip)
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while generating pack.")
+
+    pack.trip_id = trip.id
+    try:
+        db.session.commit()
+        db.session.refresh(pack)
+    except Exception as e:
+        raise HTTPException(400, "An error occurred while associating pack.")
+
+    db.session.refresh(trip)
+    return trip
 
 
 class AssignPack(BaseModel):
