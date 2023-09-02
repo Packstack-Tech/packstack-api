@@ -131,7 +131,7 @@ def update_pack_item(pack_id, item_id, payload: PackItemToggle, user: User = Dep
     return True
 
 
-@route.get("/unassigned")
+@route.get("/legacy/unassigned")
 def get_unassigned_packs(user: User = Depends(authenticate)):
     unassigned_packs = db.session.query(Pack).filter_by(
         user_id=user.id, trip_id=None).all()

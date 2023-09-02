@@ -94,10 +94,10 @@ def login(payload: UserLogin):
 
 class UserUpdate(BaseModel):
     display_name: str = None
+    email: str = None
     bio: str = None
     unit_distance: str = None
     unit_temperature: str = None
-    unit_weight: str = None
     currency: str = None
     facebook_url: str = None
     instagram_url: str = None
@@ -105,7 +105,6 @@ class UserUpdate(BaseModel):
     twitter_url: str = None
     snap_url: str = None
     personal_url: str = None
-    hide_table_headers: bool = None
 
 
 @route.put("")
