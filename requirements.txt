@@ -1,7 +1,6 @@
 PyJWT==1.7.1
 requests==2.27.1
 passlib==1.7.2
-sendgrid==6.10.0
 
 psycopg2-binary==2.9.6
 python-multipart==0.0.5
@@ -9,11 +8,11 @@ boto3==1.17.27
 alembic==1.8.0
 fastapi-sqlalchemy==0.2.1
 SQLAlchemy==2.0.13
-mailchimp-marketing==3.0.15
+mailchimp-marketing==3.0.80
+git+https://github.com/mailchimp/mailchimp-transactional-python.git
 stripe==2.53.0
-mailjet_rest==1.3.3
 Pillow==8.4.0
-fastapi>=0.78
+fastapi>=0.103.2
 pydantic>=1.8.0,<2.0.0
-uvicorn>=0.15.0,<0.16.0
+uvicorn[standard]
 git+https://maplethorpej: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@github.com/Packstack-Tech/models.git@v1.0.6#egg=models

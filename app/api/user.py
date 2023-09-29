@@ -9,8 +9,7 @@ from PIL import Image as PILImage, ImageOps
 from models.base import User, Image, PasswordReset
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload
-from utils.mailchimp import add_contact
-from utils.sendgrid import send_reset_request
+from utils.mailchimp import add_contact, send_reset_password_email
 
 route = APIRouter()
 
@@ -78,11 +77,13 @@ def login(payload: UserLogin):
         func.lower(User.username) == emailOrUsername)).first()
 
     if not user:
-        raise HTTPException(status_code=400, detail="Account does not exist.")
+        raise HTTPException(
+            status_code=400, detail="Invalid username or password.")
 
     valid_password = User.verify_hash(payload.password, user.password)
     if not valid_password:
-        raise HTTPException(status_code=400, detail="Password is incorrect.")
+        raise HTTPException(
+            status_code=400, detail="Invalid username or password.")
 
     jwt_token = User.generate_jwt(user)
 
@@ -206,8 +207,8 @@ def request_password_reset(payload: RequestReset):
         print(e)
         raise HTTPException(400, "An error occurred.")
 
-    # Send email
-    send_reset_request(email, reset_request.callback_id)
+    # Send reset password email
+    send_reset_password_email(email, reset_request.callback_id)
 
     return Response(status_code=200)
 

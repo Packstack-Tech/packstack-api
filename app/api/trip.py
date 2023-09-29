@@ -29,6 +29,16 @@ def fetch():
     return trips
 
 
+@route.get("/info/{trip_id}")
+def fetch_info(trip_id):
+    trip = db.session.query(Trip).filter_by(id=trip_id).first()
+    packs = db.session.query(Pack).filter_by(trip_id=trip_id).all()
+    return {
+        "trip": trip,
+        "packs": packs
+    }
+
+
 @route.get("/sitemap")
 def get_sitemap():
     trips = db.session.query(Trip.id, Trip.title, Trip.updated_at).filter_by(
