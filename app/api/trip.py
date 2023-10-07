@@ -31,8 +31,12 @@ def fetch():
 
 @route.get("/info/{trip_id}")
 def fetch_info(trip_id):
-    trip = db.session.query(Trip).filter_by(id=trip_id).first()
-    packs = db.session.query(Pack).filter_by(trip_id=trip_id).all()
+    trip = db.session.query(Trip).filter_by(uuid=trip_id).first()
+
+    if not trip:
+        raise HTTPException(400, "Trip not found.")
+
+    packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
     return {
         "trip": trip,
         "packs": packs
@@ -387,7 +391,7 @@ def remove_image(trip_id, id, user: User = Depends(authenticate)):
 
 
 @route.get("/{trip_id}")
-def fetch_one(trip_id):
+def fetch_one(trip_id, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).options(
         joinedload(Trip.user)).filter_by(id=trip_id).first()
     return trip
