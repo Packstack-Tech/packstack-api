@@ -391,7 +391,7 @@ def remove_image(trip_id, id, user: User = Depends(authenticate)):
 
 
 @route.get("/{trip_id}")
-def fetch_one(trip_id, user: User = Depends(authenticate)):
+def fetch_one(trip_id):
     trip = db.session.query(Trip).options(
         joinedload(Trip.user)).filter_by(id=trip_id).first()
     return trip
