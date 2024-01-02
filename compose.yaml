@@ -1,0 +1,41 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DEVELOPMENT: 1
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST: database
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: packstack
+      JWT_SECRET: 0123456789
+      JWT_ALGORITHM: HS256
+      
+    ports:
+      - 80:80
+    networks:
+      - packstack
+    depends_on:
+      - database
+
+  database:
+    restart: always
+    image: postgres:14.5-alpine
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: packstack
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - packstack
+    ports:
+      - "5432:5432"
+
+networks:
+  packstack:
+
+volumes:
+  pgdata:
