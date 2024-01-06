@@ -33,13 +33,20 @@ def fetch():
 def fetch_info(trip_id):
     trip = db.session.query(Trip).filter_by(uuid=trip_id).first()
 
+    # fetch pack owner's info
+    user = db.session.query(User.username,
+                            User.unit_distance,
+                            User.unit_temperature,
+                            User.unit_weight).filter_by(id=trip.user_id).first()._asdict()
+
     if not trip:
         raise HTTPException(400, "Trip not found.")
 
     packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
     return {
         "trip": trip,
-        "packs": packs
+        "packs": packs,
+        "user": user
     }
 
 
