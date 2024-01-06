@@ -27,3 +27,23 @@ def convert_weight(value, source_unit, target_unit):
         return converted_value
     else:
         raise Exception("Invalid source or target unit")
+
+
+def standardize_weight_unit(unit: str):
+    unit = unit.lower().strip()
+    if unit == 'gram' or unit == 'grams':
+        unit = 'g'
+
+    if unit == 'kilogram' or unit == 'kilograms':
+        unit = 'kg'
+
+    if unit == 'ounce' or unit == 'ounces':
+        unit = 'oz'
+
+    if unit == 'lbs' or unit == 'pound' or unit == 'pounds':
+        unit = 'lb'
+
+    if unit not in ['g', 'kg', 'oz', 'lb']:
+        raise Exception("Invalid unit. Must be one of: g, kg, oz, lb")
+
+    return unit
