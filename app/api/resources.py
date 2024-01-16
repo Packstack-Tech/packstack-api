@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
-from models.base import Brand, Condition, Geography, Product, User, Category, Item
+from models.base import Brand, Condition, Geography, Product, User, Category, Item, ProductVariant
 from utils.auth import authenticate
 from utils.digital_ocean import s3_client
 from utils.weight import convert_weight
@@ -74,6 +74,14 @@ def search_products(brand_id, search_str, user: User = Depends(authenticate)):
     products = db.session.query(Product).filter(
         Product.brand_id == brand_id, Product.name.ilike(search)).all()
     return products
+
+
+@route.get("/product/variants/{product_id}")
+def get_product_variants(product_id, user: User = Depends(authenticate)):
+    variants = db.session.query(ProductVariant).filter_by(
+        product_id=product_id).all()
+
+    return variants
 
 
 class CreateProduct(BaseModel):

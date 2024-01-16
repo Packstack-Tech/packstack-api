@@ -17,4 +17,4 @@ Pillow==8.4.0
 fastapi>=0.103.2
 pydantic>=1.8.0,<2.0.0
 uvicorn[standard]
-git+https://github.com/Packstack-Tech/models.git@v1.2.0#egg=models
+git+https://github.com/Packstack-Tech/models.git@v1.2.1#egg=models

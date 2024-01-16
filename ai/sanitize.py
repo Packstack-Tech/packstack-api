@@ -13,7 +13,7 @@ client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
 
-engine = create_engine(os.environ.get("DATABASE_LOCAL_URL"))
+engine = create_engine(os.environ.get("DATABASE_PROD_URL"))
 
 
 def main():
