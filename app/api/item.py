@@ -7,7 +7,7 @@ from typing import List
 from io import StringIO
 from sqlalchemy import or_, func
 
-from models.base import User, Item, ItemCategory, Category, Brand, Product
+from models.base import User, Item, ItemCategory, Category, Brand, Product, ProductVariant
 from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
@@ -21,6 +21,8 @@ class ItemType(BaseModel):
     brand_new: str = None
     product_id: int = None
     product_new: str = None
+    product_variant_id: int = None
+    product_variant_new: str = None
     category_id: int = None
     category_new: str = None
     weight: float = None
@@ -66,6 +68,21 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
             db.session.refresh(product)
             payload.product_id = product.id
 
+    if payload.product_variant_new and payload.product_id:
+        new_variant = payload.product_variant_new.strip()
+        existing_variant = db.session.query(ProductVariant).filter(
+            func.lower(ProductVariant.name) == new_variant.lower()).first()
+
+        if existing_variant:
+            payload.product_variant_id = existing_variant.id
+        else:
+            variant = ProductVariant(
+                name=new_variant, product_id=payload.product_id)
+            db.session.add(variant)
+            db.session.commit()
+            db.session.refresh(variant)
+            payload.product_variant_id = variant.id
+
     # If category_new is provided, create a new category
     if payload.category_new:
         new_category = payload.category_new.strip()
@@ -89,6 +106,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     # Remove data-creation fields from dict
     item_data = payload.dict()
     item_data.pop("product_new")
+    item_data.pop("product_variant_new")
     item_data.pop("brand_new")
     item_data.pop("category_new")
 
@@ -141,6 +159,21 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
             db.session.refresh(product)
             payload.product_id = product.id
 
+    if payload.product_variant_new and payload.product_id:
+        new_variant = payload.product_variant_new.strip()
+        existing_variant = db.session.query(ProductVariant).filter(
+            func.lower(ProductVariant.name) == new_variant.lower()).first()
+
+        if existing_variant:
+            payload.product_variant_id = existing_variant.id
+        else:
+            variant = ProductVariant(
+                name=new_variant, product_id=payload.product_id)
+            db.session.add(variant)
+            db.session.commit()
+            db.session.refresh(variant)
+            payload.product_variant_id = variant.id
+
     # If category_new is provided, create a new category
     if payload.category_new:
         new_category = payload.category_new.strip()
@@ -163,6 +196,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     # Remove data-creation fields from dict
     fields = payload.dict()
     fields.pop("product_new")
+    fields.pop("product_variant_new")
     fields.pop("brand_new")
     fields.pop("category_new")
 

@@ -1,6 +1,8 @@
 PyJWT==1.7.1
 requests==2.27.1
 passlib==1.7.2
+openai
+python-dotenv==1.0.0
 
 psycopg2-binary==2.9.6
 python-multipart==0.0.5
@@ -15,4 +17,4 @@ Pillow==8.4.0
 fastapi>=0.103.2
 pydantic>=1.8.0,<2.0.0
 uvicorn[standard]
-git+https://github.com/Packstack-Tech/models.git@v1.1.1#egg=models
+git+https://github.com/Packstack-Tech/models.git@v1.2.1#egg=models
