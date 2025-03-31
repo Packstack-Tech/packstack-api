@@ -21,7 +21,8 @@ def main():
     with Session(engine) as session:
 
         # query products (chunk in prod)
-        products = session.query(Product).all()
+        products = session.query(Product).filter(Product.id >= 11751).order_by(
+            Product.id).limit(1000).all()
 
         for product in products:
             print(f"Processing: {product.id} - {product.name}")
