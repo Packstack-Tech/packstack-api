@@ -282,6 +282,33 @@ def remove(item_id, user: User = Depends(authenticate)):
     return item
 
 
+class BulkItemIds(BaseModel):
+    __root__: List[int]
+
+    def __iter__(self):
+        return iter(self.__root__)
+
+
+@route.put("/bulk-archive")
+def bulk_archive(item_ids: BulkItemIds, user: User = Depends(authenticate)):
+    ids = list(item_ids)
+    db.session.query(Item).filter(
+        Item.id.in_(ids), Item.user_id == user.id
+    ).update({"removed": True}, synchronize_session="fetch")
+    db.session.commit()
+    return True
+
+
+@route.put("/bulk-restore")
+def bulk_restore(item_ids: BulkItemIds, user: User = Depends(authenticate)):
+    ids = list(item_ids)
+    db.session.query(Item).filter(
+        Item.id.in_(ids), Item.user_id == user.id
+    ).update({"removed": False}, synchronize_session="fetch")
+    db.session.commit()
+    return True
+
+
 @route.post("/import/lighterpack")
 async def import_lighterpack_items(file: UploadFile = File(...), user: User = Depends(authenticate)):
     contents = await file.read()

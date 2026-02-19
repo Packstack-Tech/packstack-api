@@ -51,9 +51,33 @@ class CategoryUpdateType(BaseModel):
 
 @route.put("/{category_id}")
 def update(category_id, payload: CategoryUpdateType, user: User = Depends(authenticate)):
-    category = db.session.query(Category).filter_by(
-        id=category_id, user_id=user.id).first()
+    category = db.session.query(Category).filter_by(id=category_id).first()
     if not category:
+        raise HTTPException(400, "Category does not exist.")
+
+    # Global category — create a user-owned copy and repoint the ItemCategory
+    if category.user_id is None:
+        new_category = Category(user_id=user.id, name=payload.name)
+        try:
+            db.session.add(new_category)
+            db.session.flush()
+        except Exception:
+            raise HTTPException(400, "Unable to create category copy.")
+
+        item_category = db.session.query(ItemCategory).filter_by(
+            category_id=category.id, user_id=user.id).first()
+        if item_category:
+            item_category.category_id = new_category.id
+
+        try:
+            db.session.commit()
+            db.session.refresh(new_category)
+        except Exception:
+            raise HTTPException(400, "Unable to update category.")
+
+        return new_category
+
+    if category.user_id != user.id:
         raise HTTPException(400, "Category does not exist.")
 
     fields = payload.dict(exclude_none=True)
