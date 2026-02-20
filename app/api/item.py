@@ -266,7 +266,7 @@ def sort_items(categories: SortItems, user: User = Depends(authenticate)):
 @route.get("s")
 def fetch(user: User = Depends(authenticate)):
     items = db.session.query(Item).filter_by(
-        user_id=user.id, removed=False).all()
+        user_id=user.id).all()
     return items
 
 
@@ -280,6 +280,33 @@ def remove(item_id, user: User = Depends(authenticate)):
     db.session.refresh(item)
 
     return item
+
+
+class BulkItemIds(BaseModel):
+    __root__: List[int]
+
+    def __iter__(self):
+        return iter(self.__root__)
+
+
+@route.put("/bulk-archive")
+def bulk_archive(item_ids: BulkItemIds, user: User = Depends(authenticate)):
+    ids = list(item_ids)
+    db.session.query(Item).filter(
+        Item.id.in_(ids), Item.user_id == user.id
+    ).update({"removed": True}, synchronize_session="fetch")
+    db.session.commit()
+    return True
+
+
+@route.put("/bulk-restore")
+def bulk_restore(item_ids: BulkItemIds, user: User = Depends(authenticate)):
+    ids = list(item_ids)
+    db.session.query(Item).filter(
+        Item.id.in_(ids), Item.user_id == user.id
+    ).update({"removed": False}, synchronize_session="fetch")
+    db.session.commit()
+    return True
 
 
 @route.post("/import/lighterpack")
