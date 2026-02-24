@@ -14,7 +14,7 @@ services:
       JWT_ALGORITHM: HS256
       GOOGLE_CLIENT_IDS: 397801649359-feenjsl1c89fd772hgh0sgsbond4f7sp.apps.googleusercontent.com
       APP_HOST: http://localhost,http://localhost:5173
-      RESEND_API_KEY: re_5fHfWbEZ_eAK65ZgNi7PXY9saqu7ruw5z
+      RESEND_API_KEY: replace_with_your_resend_api_key
 
     ports:
       - 80:80
