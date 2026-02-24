@@ -11,12 +11,11 @@ from PIL import Image as PILImage, ImageOps
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
-from models.base import User, Image, PasswordReset
+from models.base import User, Image, PasswordReset, EmailVerification
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
 from utils.consts import DEVELOPMENT, GOOGLE_CLIENT_IDS
 from utils.digital_ocean import s3_file_upload
-from utils.mailchimp import add_contact
-from utils.mailgun import send_password_reset
+from utils.resend_email import send_password_reset, send_verification_email
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +62,16 @@ def register(payload: UserRegister, response: Response):
     jwt_token = generate_jwt(new_user)
     set_auth_cookie(response, jwt_token)
 
+    verification = EmailVerification(user_id=new_user.id)
+    try:
+        db.session.add(verification)
+        db.session.commit()
+        db.session.refresh(verification)
+    except Exception:
+        logger.exception("Failed to create email verification")
+
     if not DEVELOPMENT:
-        add_contact(email)
+        send_verification_email(email, verification.callback_id)
 
     return {
         "user": new_user.to_dict(),
@@ -143,6 +150,7 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
         ).first()
         if user:
             user.google_id = google_sub
+            user.email_verified = True
             db.session.commit()
 
     if not user:
@@ -159,13 +167,11 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
             password=None,
             google_id=google_sub,
             display_name=name[:50] if name else None,
+            email_verified=True,
         )
         db.session.add(user)
         db.session.commit()
         db.session.refresh(user)
-
-        if not DEVELOPMENT:
-            add_contact(email)
 
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)
@@ -272,6 +278,59 @@ def get_profile_by_username(username: str):
         raise HTTPException(404, "User does not exist.")
 
     return user.to_dict()
+
+
+class VerifyEmailData(BaseModel):
+    callback_id: str
+
+
+@route.post("/verify-email")
+def verify_email(payload: VerifyEmailData):
+    callback_id = payload.callback_id.strip()
+
+    verification = db.session.query(EmailVerification).filter_by(
+        callback_id=callback_id).first()
+
+    if not verification:
+        raise HTTPException(400, "Invalid or expired verification link.")
+
+    user = db.session.query(User).filter_by(id=verification.user_id).first()
+
+    if not user:
+        raise HTTPException(404, "User does not exist.")
+
+    user.email_verified = True
+
+    try:
+        db.session.query(EmailVerification).filter_by(user_id=user.id).delete()
+        db.session.commit()
+    except Exception:
+        logger.exception("Failed to verify email")
+        raise HTTPException(400, "An error occurred.")
+
+    return {"email_verified": True}
+
+
+@route.post("/resend-verification")
+def resend_verification(user: User = Depends(authenticate)):
+    if user.email_verified:
+        raise HTTPException(400, "Email is already verified.")
+
+    db.session.query(EmailVerification).filter_by(user_id=user.id).delete()
+
+    verification = EmailVerification(user_id=user.id)
+    try:
+        db.session.add(verification)
+        db.session.commit()
+        db.session.refresh(verification)
+    except Exception:
+        logger.exception("Failed to create email verification")
+        raise HTTPException(400, "An error occurred.")
+
+    if not DEVELOPMENT:
+        send_verification_email(user.email, verification.callback_id)
+
+    return {"sent": True}
 
 
 class RequestReset(BaseModel):

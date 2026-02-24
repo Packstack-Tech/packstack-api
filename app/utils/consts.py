@@ -19,11 +19,7 @@ DO_SPACES_SECRET_KEY = os.getenv('DO_SPACES_SECRET_KEY')
 DO_BUCKET = os.getenv('DO_BUCKET')
 DO_CDN = os.getenv('DO_CDN')
 
-MAILCHIMP_API_KEY = os.getenv('MAILCHIMP_API_KEY')
-MAILCHIMP_AUDIENCE_ID = os.getenv('MAILCHIMP_AUDIENCE_ID')
-MANDRILL_API_KEY = os.getenv('MANDRILL_API_KEY')
-MAILGUN_API_KEY = os.getenv('MAILGUN_API_KEY')
-MAILGUN_SENDING_DOMAIN = os.getenv('MAILGUN_SENDING_DOMAIN')
+RESEND_API_KEY = os.getenv('RESEND_API_KEY')
 
 GOOGLE_CLIENT_IDS = [
     cid.strip() for cid in os.getenv('GOOGLE_CLIENT_IDS', '').split(',') if cid.strip()
