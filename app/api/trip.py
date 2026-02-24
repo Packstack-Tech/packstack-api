@@ -1,4 +1,5 @@
 import datetime
+import logging
 
 from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
@@ -12,6 +13,8 @@ from models.base import User, Trip, Image, TripGeography, TripCondition, Pack, P
 from utils.auth import authenticate
 from utils.digital_ocean import s3_file_upload, s3_file_delete
 from utils.utils import clone_model
+
+logger = logging.getLogger(__name__)
 
 route = APIRouter()
 
@@ -30,23 +33,25 @@ def fetch():
 
 
 @route.get("/info/{trip_id}")
-def fetch_info(trip_id):
+def fetch_info(trip_id: str):
     trip = db.session.query(Trip).filter_by(uuid=trip_id).first()
 
-    # fetch pack owner's info
+    if not trip:
+        raise HTTPException(404, "Trip not found.")
+
     user = db.session.query(User.username,
                             User.unit_distance,
                             User.unit_temperature,
-                            User.unit_weight).filter_by(id=trip.user_id).first()._asdict()
+                            User.unit_weight).filter_by(id=trip.user_id).first()
 
-    if not trip:
-        raise HTTPException(400, "Trip not found.")
+    if not user:
+        raise HTTPException(404, "Trip owner not found.")
 
     packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
     return {
         "trip": trip,
         "packs": packs,
-        "user": user
+        "user": user._asdict()
     }
 
 
@@ -80,7 +85,7 @@ class TripType(BaseModel):
     geography_ids: List[int] = None
 
 
-@route.post("")
+@route.post("", status_code=201)
 def create(payload: TripType, user: User = Depends(authenticate)):
     trip = payload.dict(exclude_none=True)
     condition_ids = trip.pop('condition_ids', None)
@@ -91,7 +96,7 @@ def create(payload: TripType, user: User = Depends(authenticate)):
         db.session.add(new_trip)
         db.session.commit()
         db.session.refresh(new_trip)
-    except:
+    except Exception:
         raise HTTPException(400, "Unable to create trip.")
 
     if condition_ids:
@@ -100,8 +105,8 @@ def create(payload: TripType, user: User = Depends(authenticate)):
                           for id in condition_ids]
             db.session.bulk_insert_mappings(TripCondition, conditions)
             db.session.commit()
-        except:
-            pass
+        except Exception:
+            logger.exception("Failed to insert trip conditions")
 
     if geography_ids:
         try:
@@ -109,8 +114,8 @@ def create(payload: TripType, user: User = Depends(authenticate)):
                            for id in geography_ids]
             db.session.bulk_insert_mappings(TripGeography, geographies)
             db.session.commit()
-        except:
-            pass
+        except Exception:
+            logger.exception("Failed to insert trip geographies")
 
     db.session.refresh(new_trip)
 
@@ -127,7 +132,7 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
         id=payload.id, user_id=user.id).first()
 
     if not trip:
-        raise HTTPException(400, "trip not found.")
+        raise HTTPException(404, "Trip not found.")
 
     fields = payload.dict(exclude_none=True)
     condition_ids = fields.pop('condition_ids', None)
@@ -139,49 +144,43 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
 
         db.session.commit()
         db.session.refresh(trip)
-    except Exception as e:
+    except Exception:
         raise HTTPException(400, "An error occurred while updating trip.")
 
     if condition_ids is not None:
-        for trip_condition in trip.conditions:
-            db.session.delete(trip_condition)
-            db.session.commit()
-
+        db.session.query(TripCondition).filter_by(trip_id=trip.id).delete()
         try:
             conditions = [dict(trip_id=trip.id, condition_id=id)
                           for id in condition_ids]
             db.session.bulk_insert_mappings(TripCondition, conditions)
-        except:
-            pass
+        except Exception:
+            logger.exception("Failed to update trip conditions")
 
     if geography_ids is not None:
-        for trip_geography in trip.geographies:
-            db.session.delete(trip_geography)
-            db.session.commit()
-
+        db.session.query(TripGeography).filter_by(trip_id=trip.id).delete()
         try:
             geographies = [dict(trip_id=trip.id, geography_id=id)
                            for id in geography_ids]
             db.session.bulk_insert_mappings(TripGeography, geographies)
-        except:
-            pass
+        except Exception:
+            logger.exception("Failed to update trip geographies")
 
     try:
         db.session.commit()
         db.session.refresh(trip)
-    except:
-        pass
+    except Exception:
+        logger.exception("Failed to commit trip update")
 
     return trip
 
 
-@route.post("/{trip_id}/clone")
-def clone(trip_id, user: User = Depends(authenticate)):
+@route.post("/{trip_id}/clone", status_code=201)
+def clone(trip_id: int, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(
         id=trip_id, user_id=user.id).first()
 
     if not trip:
-        raise HTTPException(400, "Trip not found.")
+        raise HTTPException(404, "Trip not found.")
 
     cloned_trip_data = clone_model(trip, ['title', 'location', 'created_at'])
     cloned_trip = Trip(
@@ -193,44 +192,44 @@ def clone(trip_id, user: User = Depends(authenticate)):
 
     try:
         db.session.add(cloned_trip)
+        db.session.flush()
+
+        packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
+        for pack in packs:
+            cloned_pack_data = clone_model(pack, ['trip_id'])
+            cloned_pack = Pack(**cloned_pack_data, trip_id=cloned_trip.id)
+            db.session.add(cloned_pack)
+            db.session.flush()
+
+            for item in pack.items:
+                cloned_item_data = clone_model(item)
+                cloned_item = PackItem(
+                    **cloned_item_data,
+                    pack_id=cloned_pack.id,
+                    item_id=item.item_id
+                )
+                db.session.add(cloned_item)
+
         db.session.commit()
         db.session.refresh(cloned_trip)
-    except:
+    except Exception:
+        db.session.rollback()
         raise HTTPException(400, "An error occurred while cloning trip.")
-
-    packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
-    for pack in packs:
-        cloned_pack_data = clone_model(pack, ['trip_id'])
-        cloned_pack = Pack(**cloned_pack_data, trip_id=cloned_trip.id)
-        db.session.add(cloned_pack)
-        db.session.commit()
-        db.session.refresh(cloned_pack)
-
-        for item in pack.items:
-            cloned_item_data = clone_model(item)
-            cloned_item = PackItem(
-                **cloned_item_data,
-                pack_id=cloned_pack.id,
-                item_id=item.item_id
-            )
-            db.session.add(cloned_item)
-            db.session.commit()
-            db.session.refresh(cloned_item)
-
-    db.session.refresh(cloned_trip)
 
     return cloned_trip
 
 
-@route.post("/{trip_id}/upload-image")
-def upload_image(trip_id, file: UploadFile = File(...), user: User = Depends(authenticate)):
+@route.post("/{trip_id}/upload-image", status_code=201)
+def upload_image(trip_id: int, file: UploadFile = File(...), user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(id=trip_id).first()
+    if not trip:
+        raise HTTPException(404, "Trip not found.")
+
     sort_order = len(trip.images)
     trip_image = Image(user_id=user.id,
                        trip_id=trip_id,
                        sort_order=sort_order)
 
-    # save thumbnail & resized version
     temp_original = BytesIO()
     temp_thumb = BytesIO()
 
@@ -241,8 +240,8 @@ def upload_image(trip_id, file: UploadFile = File(...), user: User = Depends(aut
 
     thumb = img.copy()
 
-    img.thumbnail([1000, 1000], PILImage.ANTIALIAS)
-    thumb.thumbnail([250, 250], PILImage.ANTIALIAS)
+    img.thumbnail([1000, 1000], PILImage.LANCZOS)
+    thumb.thumbnail([250, 250], PILImage.LANCZOS)
 
     img.save(temp_original, format=img_format, quality=65, optimize=True)
     thumb.save(temp_thumb, format=img_format, quality=85, optimize=True)
@@ -255,8 +254,8 @@ def upload_image(trip_id, file: UploadFile = File(...), user: User = Depends(aut
         trip_image.s3 = {'extension': '.png', 'entity': 'trip'}
         db.session.commit()
         db.session.refresh(trip_image)
-    except Exception as e:
-        print(e)
+    except Exception:
+        logger.exception("Failed to create trip image metadata")
         raise HTTPException(
             400, "An error occurred while creating image metadata.")
 
@@ -287,7 +286,7 @@ class SortTripPhotos(BaseModel):
 
 
 @route.post("/{trip_id}/sort-photos")
-def sort_images(trip_id, photos: SortTripPhotos, user: User = Depends(authenticate)):
+def sort_images(trip_id: int, photos: SortTripPhotos, user: User = Depends(authenticate)):
     photo_mappings = [dict(id=photo.id, sort_order=photo.sort_order)
                       for photo in photos]
 
@@ -297,20 +296,20 @@ def sort_images(trip_id, photos: SortTripPhotos, user: User = Depends(authentica
             id=trip_id, user_id=user.id).first()
         db.session.commit()
         db.session.refresh(trip)
-    except:
+    except Exception:
         raise HTTPException(
             400, "An error occurred while updating photo order.")
 
     return trip.images
 
 
-@route.delete("/{trip_id}")
-def remove_trip(trip_id, user: User = Depends(authenticate)):
+@route.delete("/{trip_id}", status_code=204)
+def remove_trip(trip_id: int, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(
         id=trip_id, user_id=user.id).first()
 
     if not trip:
-        raise HTTPException(400, "Permission denied.")
+        raise HTTPException(403, "Permission denied.")
 
     for image in trip.images:
         s3_file_delete(image.s3_key)
@@ -325,10 +324,8 @@ def remove_trip(trip_id, user: User = Depends(authenticate)):
     try:
         trip.removed = True
         db.session.commit()
-    except:
+    except Exception:
         raise HTTPException(400, "An error occurred while deleting trip.")
-
-    return True
 
 
 class UpdateImage(BaseModel):
@@ -336,77 +333,76 @@ class UpdateImage(BaseModel):
 
 
 @route.put("/{trip_id}/image/{id}")
-def update_image(trip_id, id, payload: UpdateImage, user: User = Depends(authenticate)):
+def update_image(trip_id: int, id: int, payload: UpdateImage, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(
         id=trip_id, user_id=user.id).first()
 
     if not trip:
-        raise HTTPException(400, "Permission denied.")
+        raise HTTPException(403, "Permission denied.")
 
     image = db.session.query(Image).filter_by(id=id).first()
 
     if not image:
-        raise HTTPException(400, "Image not found.")
+        raise HTTPException(404, "Image not found.")
 
     try:
         image.caption = payload.caption
         db.session.commit()
         db.session.refresh(image)
-    except:
+    except Exception:
         raise HTTPException(400, "An error occurred saving image.")
 
     return image
 
 
 @route.put("/{trip_id}/publish")
-def toggle_publish(trip_id, user: User = Depends(authenticate)):
+def toggle_publish(trip_id: int, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(
         id=trip_id, user_id=user.id).first()
 
     if not trip:
-        raise HTTPException(400, "Permission denied.")
+        raise HTTPException(403, "Permission denied.")
 
     trip.published = not trip.published
     try:
         db.session.commit()
         db.session.refresh(trip)
-    except:
+    except Exception:
         raise HTTPException(400, "An error occurred.")
 
     return trip
 
 
-@route.delete("/{trip_id}/image/{id}")
-def remove_image(trip_id, id, user: User = Depends(authenticate)):
+@route.delete("/{trip_id}/image/{id}", status_code=204)
+def remove_image(trip_id: int, id: int, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(
         id=trip_id, user_id=user.id).first()
 
     if not trip:
-        raise HTTPException(400, "Permission denied.")
+        raise HTTPException(403, "Permission denied.")
 
     image = db.session.query(Image).filter_by(id=id).first()
+    if not image:
+        raise HTTPException(404, "Image not found.")
+
     s3_file_delete(image.s3_key)
     s3_file_delete(image.s3_key_thumb)
 
     db.session.delete(image)
     db.session.commit()
 
-    return {
-        "trip_id": trip_id,
-        "image_id": id
-    }
-
 
 @route.get("/{trip_id}")
-def fetch_one(trip_id):
+def fetch_one(trip_id: int):
     trip = db.session.query(Trip).options(
         joinedload(Trip.user)).filter_by(id=trip_id).first()
     return trip
 
 
 @route.get("s")
-def fetch_all(user: User = Depends(authenticate)):
+def fetch_all(user: User = Depends(authenticate), limit: int = 100, offset: int = 0):
     trips = db.session.query(Trip).filter_by(
-        user_id=user.id, removed=False).order_by(Trip.end_date.desc()).all()
+        user_id=user.id, removed=False
+    ).order_by(Trip.end_date.desc()).offset(offset).limit(limit).all()
 
     return trips

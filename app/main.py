@@ -2,11 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
-from utils.consts import DATABASE_URL, DEVELOPMENT
+from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
 from api import user, resources, item, trip, category, pack
 
 if DEVELOPMENT:
-    # Create the database tables if they don't exist
     from sqlalchemy import create_engine
     from models.base import Base
     engine = create_engine(DATABASE_URL)
@@ -15,9 +14,11 @@ if DEVELOPMENT:
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
 
+allowed_origins = [o.strip() for o in APP_HOST.split(',') if o.strip()] if APP_HOST else []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

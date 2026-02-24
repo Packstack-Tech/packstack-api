@@ -24,3 +24,7 @@ MAILCHIMP_AUDIENCE_ID = os.getenv('MAILCHIMP_AUDIENCE_ID')
 MANDRILL_API_KEY = os.getenv('MANDRILL_API_KEY')
 MAILGUN_API_KEY = os.getenv('MAILGUN_API_KEY')
 MAILGUN_SENDING_DOMAIN = os.getenv('MAILGUN_SENDING_DOMAIN')
+
+GOOGLE_CLIENT_IDS = [
+    cid.strip() for cid in os.getenv('GOOGLE_CLIENT_IDS', '').split(',') if cid.strip()
+]

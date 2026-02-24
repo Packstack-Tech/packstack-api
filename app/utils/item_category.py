@@ -1,5 +1,10 @@
+import logging
+
 from fastapi import HTTPException
 from models.base import ItemCategory
+
+logger = logging.getLogger(__name__)
+
 
 def get_or_create_item_category(session, category_id, user_id):
     item_category = session.query(ItemCategory).filter_by(
@@ -8,7 +13,6 @@ def get_or_create_item_category(session, category_id, user_id):
     if item_category:
         return item_category.id
 
-    # Create Item Category
     position = session.query(
         ItemCategory).filter_by(user_id=user_id).count()
     new_item_category = ItemCategory(
@@ -18,8 +22,8 @@ def get_or_create_item_category(session, category_id, user_id):
         session.add(new_item_category)
         session.commit()
         session.refresh(new_item_category)
-    except:
+    except Exception:
+        logger.exception("Failed to create item category")
         raise HTTPException(400, "An error occurred while creating category.")
 
     return new_item_category.id
-    

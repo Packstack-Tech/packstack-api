@@ -1,4 +1,5 @@
 import csv
+import logging
 import statistics
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,9 +10,12 @@ from sqlalchemy.orm import joinedload
 
 from models.base import Brand, Condition, Geography, Product, User, Category, Item, ProductVariant
 from utils.auth import authenticate
+from utils.consts import DEVELOPMENT
 from utils.digital_ocean import s3_client
 from utils.weight import convert_weight
 from seed.categories import default_categories
+
+logger = logging.getLogger(__name__)
 
 route = APIRouter()
 
@@ -29,17 +33,16 @@ def fetch():
 
 @route.get("/buckets")
 def fetch_buckets():
-    # List all buckets on your account.
     response = s3_client.list_buckets()
     spaces = [space['Name'] for space in response['Buckets']]
-    print("Spaces List: %s" % spaces)
+    return spaces
 
 
 class CreateBrand(BaseModel):
     name: str
 
 
-@route.post("/brand")
+@route.post("/brand", status_code=201)
 def create_brand(payload: CreateBrand, user: User = Depends(authenticate)):
     if len(payload.name) <= 1:
         raise HTTPException(400, 'Brand name must be longer')
@@ -62,14 +65,14 @@ def fetch_brands():
 
 
 @route.get("/brand/{brand_id}")
-def fetch_brand(brand_id):
+def fetch_brand_detail(brand_id: int):
     brand = db.session.query(Brand).options(joinedload(
         Brand.products)).filter_by(id=brand_id).first()
     return brand
 
 
 @route.get("/product/search/{brand_id}/{search_str}")
-def search_products(brand_id, search_str, user: User = Depends(authenticate)):
+def search_products(brand_id: int, search_str: str, user: User = Depends(authenticate)):
     search = "%{}%".format(search_str.strip())
     products = db.session.query(Product).filter(
         Product.brand_id == brand_id, Product.name.ilike(search)).all()
@@ -77,7 +80,7 @@ def search_products(brand_id, search_str, user: User = Depends(authenticate)):
 
 
 @route.get("/product/variants/{product_id}")
-def get_product_variants(product_id, user: User = Depends(authenticate)):
+def get_product_variants(product_id: int, user: User = Depends(authenticate)):
     variants = db.session.query(ProductVariant).filter_by(
         product_id=product_id).all()
 
@@ -89,8 +92,8 @@ class CreateProduct(BaseModel):
     brand_id: int = None
 
 
-@route.post("/product")
-def create_brand(payload: CreateProduct, user: User = Depends(authenticate)):
+@route.post("/product", status_code=201)
+def create_product(payload: CreateProduct, user: User = Depends(authenticate)):
     if len(payload.name) <= 1:
         raise HTTPException(400, 'Product name must be longer')
 
@@ -129,7 +132,7 @@ def fetch_product_details(payload: ProductDetails, user: User = Depends(authenti
         for item in weighted_items:
             item["converted_weight"] = convert_weight(
                 item["weight"], item["unit"], conversion_unit)
-    except Exception as e:
+    except Exception:
         raise HTTPException(400, 'Unable to convert weight.')
 
     median_weight = statistics.median(
@@ -143,7 +146,7 @@ def fetch_product_details(payload: ProductDetails, user: User = Depends(authenti
 
 
 @route.get("/brand/search/{query}")
-def fetch_brand(query, user: User = Depends(authenticate)):
+def search_brands(query: str, user: User = Depends(authenticate)):
     search = "%{}%".format(query.strip())
     brands = db.session.query(Brand).filter(Brand.name.ilike(
         search), Brand.removed.is_(False)).limit(10).all()
@@ -151,11 +154,11 @@ def fetch_brand(query, user: User = Depends(authenticate)):
     return brands
 
 
-# DEVELOPMENT :: SEED DATABASE
 @route.get("/seed")
 def seed_data():
+    if not DEVELOPMENT:
+        raise HTTPException(403, "Seed endpoint is only available in development.")
 
-    # Brands
     with open('app/seed/brands.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
@@ -163,10 +166,9 @@ def seed_data():
             try:
                 db.session.add(brand)
                 db.session.commit()
-            except IntegrityError as e:
+            except IntegrityError:
                 db.session.rollback()
 
-    # Default categories
     for category in default_categories():
         cat = db.session.query(Category).filter_by(name=category).first()
         if not cat:
@@ -174,8 +176,8 @@ def seed_data():
             try:
                 db.session.add(seed_category)
                 db.session.commit()
-            except Exception as e:
-                print(e)
+            except Exception:
+                logger.exception("Failed to seed category: %s", category)
                 db.session.rollback()
 
     return

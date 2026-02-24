@@ -12,6 +12,8 @@ services:
       POSTGRES_DB: packstack
       JWT_SECRET: 0123456789
       JWT_ALGORITHM: HS256
+      GOOGLE_CLIENT_IDS: 397801649359-feenjsl1c89fd772hgh0sgsbond4f7sp.apps.googleusercontent.com
+      APP_HOST: http://localhost,http://localhost:5173
       
     ports:
       - 80:80

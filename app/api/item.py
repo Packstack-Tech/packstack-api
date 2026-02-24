@@ -1,4 +1,5 @@
 import csv
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
@@ -11,8 +12,11 @@ from models.base import User, Item, ItemCategory, Category, Brand, Product, Prod
 from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
+from utils.entity_helpers import resolve_item_fields, resolve_import_category
 
-route = APIRouter()
+logger = logging.getLogger(__name__)
+
+route = APIRouter(dependencies=[Depends(authenticate)])
 
 
 class ItemType(BaseModel):
@@ -33,77 +37,15 @@ class ItemType(BaseModel):
     wishlist: bool = None
     notes: str = None
 
-# TODO functionize brand/product/category creation
 
-
-@route.post("")
+@route.post("", status_code=201)
 def create(payload: ItemType, user: User = Depends(authenticate)):
-    # If brand_new is provided, create a new brand
-    if payload.brand_new:
-        new_brand = payload.brand_new.strip()
-        existing_brand = db.session.query(Brand).filter(
-            func.lower(Brand.name) == new_brand.lower()).first()
+    resolve_item_fields(db.session, payload, user.id)
 
-        if existing_brand:
-            payload.brand_id = existing_brand.id
-        else:
-            brand = Brand(name=new_brand)
-            db.session.add(brand)
-            db.session.commit()
-            db.session.refresh(brand)
-            payload.brand_id = brand.id
-
-    # If product_new is provided, create a new product and assign brand_id
-    if payload.product_new and payload.brand_id:
-        new_product = payload.product_new.strip()
-        existing_product = db.session.query(Product).filter(
-            func.lower(Product.name) == new_product.lower()).first()
-
-        if existing_product:
-            payload.product_id = existing_product.id
-        else:
-            product = Product(name=new_product, brand_id=payload.brand_id)
-            db.session.add(product)
-            db.session.commit()
-            db.session.refresh(product)
-            payload.product_id = product.id
-
-    if payload.product_variant_new and payload.product_id:
-        new_variant = payload.product_variant_new.strip()
-        existing_variant = db.session.query(ProductVariant).filter(
-            func.lower(ProductVariant.name) == new_variant.lower()).first()
-
-        if existing_variant:
-            payload.product_variant_id = existing_variant.id
-        else:
-            variant = ProductVariant(
-                name=new_variant, product_id=payload.product_id)
-            db.session.add(variant)
-            db.session.commit()
-            db.session.refresh(variant)
-            payload.product_variant_id = variant.id
-
-    # If category_new is provided, create a new category
-    if payload.category_new:
-        new_category = payload.category_new.strip()
-        existing_category = db.session.query(Category).filter(
-            func.lower(Category.name) == new_category.lower()).first()
-
-        if existing_category:
-            payload.category_id = existing_category.id
-        else:
-            category = Category(name=new_category, user_id=user.id)
-            db.session.add(category)
-            db.session.commit()
-            db.session.refresh(category)
-            payload.category_id = category.id
-
-    # Creates an item-specific category for the user
     if payload.category_id:
         payload.category_id = get_or_create_item_category(
             db.session, payload.category_id, user.id)
 
-    # Remove data-creation fields from dict
     item_data = payload.dict()
     item_data.pop("product_new")
     item_data.pop("product_variant_new")
@@ -115,8 +57,8 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     try:
         db.session.add(new_item)
         db.session.commit()
-    except Exception as e:
-        print(e)
+    except Exception:
+        logger.exception("Failed to create item")
         raise HTTPException(400, "Unable to create item.")
 
     return new_item
@@ -129,71 +71,12 @@ class ItemUpdate(ItemType):
 
 @route.put("")
 def update(payload: ItemUpdate, user: User = Depends(authenticate)):
-    # If brand_new is provided, create a new brand
-    if payload.brand_new:
-        new_brand = payload.brand_new.strip()
-        existing_brand = db.session.query(Brand).filter(
-            func.lower(Brand.name) == new_brand.lower()).first()
-
-        if existing_brand:
-            payload.brand_id = existing_brand.id
-        else:
-            brand = Brand(name=new_brand)
-            db.session.add(brand)
-            db.session.commit()
-            db.session.refresh(brand)
-            payload.brand_id = brand.id
-
-    # If product_new is provided, create a new product and assign brand_id
-    if payload.product_new and payload.brand_id:
-        new_product = payload.product_new.strip()
-        existing_product = db.session.query(Product).filter(
-            func.lower(Product.name) == new_product.lower()).first()
-
-        if existing_product:
-            payload.product_id = existing_product.id
-        else:
-            product = Product(name=new_product, brand_id=payload.brand_id)
-            db.session.add(product)
-            db.session.commit()
-            db.session.refresh(product)
-            payload.product_id = product.id
-
-    if payload.product_variant_new and payload.product_id:
-        new_variant = payload.product_variant_new.strip()
-        existing_variant = db.session.query(ProductVariant).filter(
-            func.lower(ProductVariant.name) == new_variant.lower()).first()
-
-        if existing_variant:
-            payload.product_variant_id = existing_variant.id
-        else:
-            variant = ProductVariant(
-                name=new_variant, product_id=payload.product_id)
-            db.session.add(variant)
-            db.session.commit()
-            db.session.refresh(variant)
-            payload.product_variant_id = variant.id
-
-    # If category_new is provided, create a new category
-    if payload.category_new:
-        new_category = payload.category_new.strip()
-        existing_category = db.session.query(Category).filter(
-            func.lower(Category.name) == new_category.lower()).first()
-
-        if existing_category:
-            payload.category_id = existing_category.id
-        else:
-            category = Category(name=new_category, user_id=user.id)
-            db.session.add(category)
-            db.session.commit()
-            db.session.refresh(category)
-            payload.category_id = category.id
+    resolve_item_fields(db.session, payload, user.id)
 
     if payload.category_id:
         payload.category_id = get_or_create_item_category(
             db.session, payload.category_id, user.id)
 
-    # Remove data-creation fields from dict
     fields = payload.dict()
     fields.pop("product_new")
     fields.pop("product_variant_new")
@@ -204,7 +87,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
         id=payload.id, user_id=user.id).first()
 
     if not item:
-        raise HTTPException(400, "Item not found.")
+        raise HTTPException(404, "Item not found.")
 
     for key, value in fields.items():
         setattr(item, key, value)
@@ -212,8 +95,8 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     try:
         db.session.commit()
         db.session.refresh(item)
-    except Exception as e:
-        print(e)
+    except Exception:
+        logger.exception("Failed to update item")
         raise HTTPException(400, "Unable to update item.")
 
     return item
@@ -239,8 +122,8 @@ def sort_items(items: SortItems, user: User = Depends(authenticate)):
     try:
         db.session.bulk_update_mappings(Item, item_mappings)
         db.session.commit()
-    except Exception as e:
-        print(e)
+    except Exception:
+        logger.exception("Failed to sort items")
         raise HTTPException(
             400, "An error occurred while updating item order.")
 
@@ -248,15 +131,15 @@ def sort_items(items: SortItems, user: User = Depends(authenticate)):
 
 
 @route.put("/category/sort")
-def sort_items(categories: SortItems, user: User = Depends(authenticate)):
+def sort_categories(categories: SortItems, user: User = Depends(authenticate)):
     item_category_mappings = [dict(id=category.id, user_id=user.id, sort_order=category.sort_order)
                               for category in categories]
 
     try:
         db.session.bulk_update_mappings(ItemCategory, item_category_mappings)
         db.session.commit()
-    except Exception as e:
-        print(e)
+    except Exception:
+        logger.exception("Failed to sort categories")
         raise HTTPException(
             400, "An error occurred while updating category order.")
 
@@ -264,22 +147,42 @@ def sort_items(categories: SortItems, user: User = Depends(authenticate)):
 
 
 @route.get("s")
-def fetch(user: User = Depends(authenticate)):
+def fetch(user: User = Depends(authenticate), limit: int = 100, offset: int = 0):
     items = db.session.query(Item).filter_by(
-        user_id=user.id).all()
+        user_id=user.id).offset(offset).limit(limit).all()
     return items
 
 
-@route.delete("/{item_id}")
-def remove(item_id, user: User = Depends(authenticate)):
+@route.get("s/grouped")
+def fetch_grouped(user: User = Depends(authenticate)):
+    items = db.session.query(Item).filter_by(user_id=user.id).all()
+
+    groups = {}
+    for item in items:
+        cat_key = item.category_id or "uncategorized"
+        if cat_key not in groups:
+            groups[cat_key] = {"category": item.category, "items": []}
+        groups[cat_key]["items"].append(item)
+
+    for group in groups.values():
+        group["items"].sort(key=lambda i: i.sort_order or 0)
+
+    return sorted(
+        groups.values(),
+        key=lambda g: g["category"].sort_order if g["category"] else float("inf"),
+    )
+
+
+@route.delete("/{item_id}", status_code=204)
+def remove(item_id: int, user: User = Depends(authenticate)):
     item = db.session.query(Item).filter_by(
         id=item_id, user_id=user.id).first()
+
+    if not item:
+        raise HTTPException(404, "Item not found.")
+
     item.removed = True
-
     db.session.commit()
-    db.session.refresh(item)
-
-    return item
 
 
 class BulkItemIds(BaseModel):
@@ -309,14 +212,13 @@ def bulk_restore(item_ids: BulkItemIds, user: User = Depends(authenticate)):
     return True
 
 
-@route.post("/import/lighterpack")
+@route.post("/import/lighterpack", status_code=201)
 async def import_lighterpack_items(file: UploadFile = File(...), user: User = Depends(authenticate)):
     contents = await file.read()
     decoded = contents.decode()
     buffer = StringIO(decoded)
     csvReader = csv.DictReader(buffer)
 
-    # Convert to lowercase and strip whitespace
     rows = [dict((k.lower().strip(), v.strip())
                  for k, v in row.items() if k) for row in csvReader]
     buffer.close()
@@ -326,6 +228,8 @@ async def import_lighterpack_items(file: UploadFile = File(...), user: User = De
 
     entries = []
     errors = []
+    category_cache = {}
+
     for i, row in enumerate(rows):
         name = row.get("item name")
         category = row.get("category")
@@ -349,7 +253,7 @@ async def import_lighterpack_items(file: UploadFile = File(...), user: User = De
         if weight:
             try:
                 weight = float(weight)
-            except Exception as e:
+            except (ValueError, TypeError):
                 errors.append(generate_error(i, "Invalid weight value."))
                 continue
         else:
@@ -358,7 +262,7 @@ async def import_lighterpack_items(file: UploadFile = File(...), user: User = De
         if price:
             try:
                 price = float(price)
-            except Exception as e:
+            except (ValueError, TypeError):
                 errors.append(generate_error(i, "Invalid price value."))
                 continue
         else:
@@ -366,49 +270,8 @@ async def import_lighterpack_items(file: UploadFile = File(...), user: User = De
 
         category_id = None
         if category:
-            # Retrieve user categories & generic categories
-            categories = db.session.query(Category).filter(
-                or_(Category.user_id == user.id, Category.user_id == None)).all()
-            category_id = next(
-                (cat.id for cat in categories if cat.name.lower() == category.lower()), None)
-
-            if category_id:
-                item_category_entity = db.session.query(ItemCategory.id).filter(
-                    ItemCategory.category_id == category_id, ItemCategory.user_id == user.id).first()
-
-                if item_category_entity:
-                    category_id = item_category_entity[0]
-
-                else:
-                    new_item_category = ItemCategory(
-                        user_id=user.id, category_id=category_id)
-                    try:
-                        db.session.add(new_item_category)
-                        db.session.commit()
-                        db.session.refresh(new_item_category)
-                        category_id = new_item_category.id
-                    except Exception as e:
-                        category_id = None
-                        db.session.rollback()
-
-            else:
-                new_category = Category(name=category, user_id=user.id)
-                try:
-                    db.session.add(new_category)
-                    db.session.commit()
-                    db.session.refresh(new_category)
-
-                    new_item_category = ItemCategory(
-                        user_id=user.id, category_id=new_category.id)
-                    db.session.add(new_item_category)
-                    db.session.commit()
-                    db.session.refresh(new_item_category)
-                    category_id = new_item_category.id
-
-                except Exception as e:
-                    print(e)
-                    category_id = None
-                    db.session.rollback()
+            category_id = resolve_import_category(
+                db.session, category, user.id, category_cache)
 
         entries.append(dict(user_id=user.id,
                             category_id=category_id,
@@ -426,7 +289,7 @@ async def import_lighterpack_items(file: UploadFile = File(...), user: User = De
     try:
         db.session.bulk_insert_mappings(Item, entries)
         db.session.commit()
-    except Exception as e:
+    except Exception:
         db.session.rollback()
         raise HTTPException(
             400, 'An unexpected error occurred while importing items.')
@@ -434,14 +297,13 @@ async def import_lighterpack_items(file: UploadFile = File(...), user: User = De
     return {'success': True, 'errors': [], 'count': len(entries)}
 
 
-@route.post("/import/csv")
+@route.post("/import/csv", status_code=201)
 async def import_items(file: UploadFile = File(...), user: User = Depends(authenticate)):
     contents = await file.read()
     decoded = contents.decode()
     buffer = StringIO(decoded)
     csvReader = csv.DictReader(buffer)
 
-    # Convert to lowercase and strip whitespace
     rows = [dict((k.lower().strip(), v.strip())
                  for k, v in row.items() if k) for row in csvReader]
     buffer.close()
@@ -451,6 +313,8 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
 
     entries = []
     errors = []
+    category_cache = {}
+
     for i, row in enumerate(rows):
         name = row.get("name")
         brand = row.get("manufacturer")
@@ -476,7 +340,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         if weight:
             try:
                 weight = float(weight)
-            except Exception as e:
+            except (ValueError, TypeError):
                 errors.append(generate_error(i, "Invalid weight value."))
                 continue
         else:
@@ -485,7 +349,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         if price:
             try:
                 price = float(price)
-            except Exception as e:
+            except (ValueError, TypeError):
                 errors.append(generate_error(i, "Invalid price value."))
                 continue
         else:
@@ -498,7 +362,6 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
 
             if brand_entity:
                 brand_id = brand_entity[0]
-
             else:
                 new_brand = Brand(name=brand)
                 try:
@@ -513,11 +376,10 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         product_id = None
         if brand_id and product:
             product_entity = db.session.query(Product.id).filter(
-                func.lower(Product.name) == product, Product.brand_id == brand_id).first()
+                func.lower(Product.name) == product.lower(), Product.brand_id == brand_id).first()
 
             if product_entity:
                 product_id = product_entity[0]
-
             else:
                 new_product = Product(brand_id=brand_id, name=product)
                 try:
@@ -531,49 +393,8 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
 
         category_id = None
         if category:
-            # Retrieve user categories & generic categories
-            categories = db.session.query(Category).filter(
-                or_(Category.user_id == user.id, Category.user_id == None)).all()
-            category_id = next(
-                (cat.id for cat in categories if cat.name.lower() == category.lower()), None)
-
-            if category_id:
-                item_category_entity = db.session.query(ItemCategory.id).filter(
-                    ItemCategory.category_id == category_id, ItemCategory.user_id == user.id).first()
-
-                if item_category_entity:
-                    category_id = item_category_entity[0]
-
-                else:
-                    new_item_category = ItemCategory(
-                        user_id=user.id, category_id=category_id)
-                    try:
-                        db.session.add(new_item_category)
-                        db.session.commit()
-                        db.session.refresh(new_item_category)
-                        category_id = new_item_category.id
-                    except Exception as e:
-                        category_id = None
-                        db.session.rollback()
-
-            else:
-                new_category = Category(name=category, user_id=user.id)
-                try:
-                    db.session.add(new_category)
-                    db.session.commit()
-                    db.session.refresh(new_category)
-
-                    new_item_category = ItemCategory(
-                        user_id=user.id, category_id=new_category.id)
-                    db.session.add(new_item_category)
-                    db.session.commit()
-                    db.session.refresh(new_item_category)
-                    category_id = new_item_category.id
-
-                except Exception as e:
-                    print(e)
-                    category_id = None
-                    db.session.rollback()
+            category_id = resolve_import_category(
+                db.session, category, user.id, category_cache)
 
         entries.append(dict(user_id=user.id,
                             brand_id=brand_id,
@@ -593,7 +414,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
     try:
         db.session.bulk_insert_mappings(Item, entries)
         db.session.commit()
-    except Exception as e:
+    except Exception:
         db.session.rollback()
         raise HTTPException(
             400, 'An unexpected error occurred while importing items.')
