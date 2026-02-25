@@ -15,7 +15,7 @@ from models.base import User, Image, PasswordReset, EmailVerification
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
 from utils.consts import DEVELOPMENT, GOOGLE_CLIENT_IDS
 from utils.digital_ocean import s3_file_upload
-from utils.resend_email import send_password_reset, send_verification_email
+from utils.resend_email import send_password_reset, send_verification_email, create_contact
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ def register(payload: UserRegister, response: Response):
 
     if not DEVELOPMENT:
         send_verification_email(email, verification.callback_id)
+        create_contact(email)
 
     return {
         "user": new_user.to_dict(),
@@ -172,6 +173,10 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
         db.session.add(user)
         db.session.commit()
         db.session.refresh(user)
+
+        if not DEVELOPMENT:
+            first_name, _, last_name = name.partition(" ") if name else ("", "", "")
+            create_contact(email, first_name, last_name)
 
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)

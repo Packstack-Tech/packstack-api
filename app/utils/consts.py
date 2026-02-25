@@ -20,6 +20,7 @@ DO_BUCKET = os.getenv('DO_BUCKET')
 DO_CDN = os.getenv('DO_CDN')
 
 RESEND_API_KEY = os.getenv('RESEND_API_KEY')
+RESEND_AUDIENCE_ID = os.getenv('RESEND_AUDIENCE_ID')
 
 GOOGLE_CLIENT_IDS = [
     cid.strip() for cid in os.getenv('GOOGLE_CLIENT_IDS', '').split(',') if cid.strip()
