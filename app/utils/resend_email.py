@@ -1,6 +1,6 @@
 import resend
 
-from .consts import RESEND_API_KEY, RESEND_AUDIENCE_ID, APP_HOST
+from .consts import RESEND_API_KEY, APP_HOST
 
 resend.api_key = RESEND_API_KEY
 
@@ -31,11 +31,8 @@ def _wrap(body: str) -> str:
 
 
 def create_contact(email: str, first_name: str = "", last_name: str = ""):
-    if not RESEND_AUDIENCE_ID:
-        return
     try:
         params: resend.Contacts.CreateParams = {
-            "audience_id": RESEND_AUDIENCE_ID,
             "email": email,
             "first_name": first_name,
             "last_name": last_name,
