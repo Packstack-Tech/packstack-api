@@ -1,6 +1,11 @@
+import logging
+
 import resend
+import sentry_sdk
 
 from .consts import RESEND_API_KEY, APP_HOST
+
+logger = logging.getLogger(__name__)
 
 resend.api_key = RESEND_API_KEY
 
@@ -39,7 +44,8 @@ def create_contact(email: str, first_name: str = "", last_name: str = ""):
         }
         resend.Contacts.create(params)
     except Exception as e:
-        print(f"Failed to create Resend contact: {e}")
+        logger.exception("Failed to create Resend contact")
+        sentry_sdk.capture_exception(e)
 
 
 def send_verification_email(email, token):
@@ -59,7 +65,8 @@ def send_verification_email(email, token):
             "html": _wrap(body),
         })
     except Exception as e:
-        print(f"Failed to send verification email: {e}")
+        logger.exception("Failed to send verification email")
+        sentry_sdk.capture_exception(e)
 
 
 def send_password_reset(email, token):
@@ -79,4 +86,5 @@ def send_password_reset(email, token):
             "html": _wrap(body),
         })
     except Exception as e:
-        print(f"Failed to send password reset email: {e}")
+        logger.exception("Failed to send password reset email")
+        sentry_sdk.capture_exception(e)
