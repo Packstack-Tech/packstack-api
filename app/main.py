@@ -1,15 +1,25 @@
 from fastapi import FastAPI
+import sentry_sdk
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
 from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
 from api import user, resources, item, trip, category, pack
 
-# if DEVELOPMENT:
-from sqlalchemy import create_engine
-from models.base import Base
-engine = create_engine(DATABASE_URL)
-Base.metadata.create_all(engine)
+if DEVELOPMENT:
+    from sqlalchemy import create_engine
+    from models.base import Base
+    engine = create_engine(DATABASE_URL)
+    Base.metadata.create_all(engine)
+
+
+if not DEVELOPMENT:
+    sentry_sdk.init(
+        dsn="https://d794ed7cb82ca2c3e95cf1ceb96c3bd9@o313912.ingest.us.sentry.io/4510944527515648",
+        # Add data like request headers and IP for users,
+        # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
+        send_default_pii=True,
+    )
 
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
