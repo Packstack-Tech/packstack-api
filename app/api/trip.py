@@ -1,5 +1,6 @@
 import datetime
 import logging
+import uuid as uuid_module
 
 from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
@@ -34,7 +35,14 @@ def fetch():
 
 @route.get("/info/{trip_id}")
 def fetch_info(trip_id: str):
-    trip = db.session.query(Trip).filter_by(uuid=trip_id).first()
+    try:
+        uuid_val = uuid_module.UUID(trip_id)
+        trip = db.session.query(Trip).filter_by(uuid=uuid_val).first()
+    except ValueError:
+        try:
+            trip = db.session.query(Trip).filter_by(id=int(trip_id)).first()
+        except (ValueError, TypeError):
+            raise HTTPException(400, "Invalid trip identifier.")
 
     if not trip:
         raise HTTPException(404, "Trip not found.")
