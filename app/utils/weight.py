@@ -1,8 +1,8 @@
 def convert_weight(value, source_unit, target_unit):
-    if source_unit == target_unit:
-        return value
-
     float_value = float(value)
+
+    if source_unit == target_unit:
+        return float_value
 
     # Define conversion factors
     conversion_factors = {
