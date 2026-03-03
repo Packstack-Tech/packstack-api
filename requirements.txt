@@ -18,4 +18,4 @@ fastapi>=0.103.2
 pydantic>=1.8.0,<2.0.0
 uvicorn[standard]
 sentry-sdk
-git+https://github.com/Packstack-Tech/models.git@v1.2.4#egg=models
+git+https://github.com/Packstack-Tech/models.git@v1.3.0#egg=models

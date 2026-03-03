@@ -6,11 +6,11 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
 from api import user, resources, item, trip, category, pack
 
-if DEVELOPMENT:
-    from sqlalchemy import create_engine
-    from models.base import Base
-    engine = create_engine(DATABASE_URL)
-    Base.metadata.create_all(engine)
+# if DEVELOPMENT:
+from sqlalchemy import create_engine
+from models.base import Base
+engine = create_engine(DATABASE_URL)
+Base.metadata.create_all(engine)
 
 
 if not DEVELOPMENT:
