@@ -1,20 +1,16 @@
 import logging
 import uuid
 
-from io import BytesIO
-
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi_sqlalchemy import db
 from sqlalchemy import func
 from pydantic import BaseModel
-from PIL import Image as PILImage, ImageOps
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
-from models.base import User, Image, PasswordReset, EmailVerification
+from models.base import User, PasswordReset, EmailVerification
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
 from utils.consts import DEVELOPMENT, GOOGLE_CLIENT_IDS
-from utils.digital_ocean import s3_file_upload
 from utils.resend_email import send_password_reset, send_verification_email, create_contact
 
 logger = logging.getLogger(__name__)
@@ -222,41 +218,6 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
         logger.exception("Failed to update user profile")
 
     return user.to_dict()
-
-
-@route.post("/avatar", status_code=201)
-def upload_avatar(file: UploadFile = File(...), user: User = Depends(authenticate)):
-    avatar = Image(user_id=user.id, avatar=True)
-
-    temp = BytesIO()
-    img = PILImage.open(file.file)
-    img = ImageOps.exif_transpose(img)
-    img_format = 'PNG'
-    content_type = PILImage.MIME[img_format]
-    img = img.resize([400, 400], PILImage.LANCZOS)
-    img.save(temp, format=img_format, optimize=True)
-    temp.seek(0)
-
-    try:
-        db.session.add(avatar)
-        db.session.commit()
-        avatar.s3 = {'extension': '.png', 'entity': 'avatar'}
-        db.session.commit()
-        db.session.refresh(avatar)
-    except Exception:
-        raise HTTPException(
-            400, "An error occurred while creating image metadata.")
-
-    upload_success = s3_file_upload(
-        temp, content_type=content_type, key=avatar.s3_key)
-    if not upload_success:
-        db.session.delete(avatar)
-        db.session.commit()
-        raise HTTPException(400, "An error occurred while saving avatar.")
-
-    db.session.refresh(user)
-
-    return user
 
 
 @route.get("")

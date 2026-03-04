@@ -3,33 +3,45 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file: .local.env
     environment:
       DEVELOPMENT: 1
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: password
       POSTGRES_HOST: database
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: packstack
-      JWT_SECRET: 0123456789
-      JWT_ALGORITHM: HS256
-      GOOGLE_CLIENT_IDS: 397801649359-feenjsl1c89fd772hgh0sgsbond4f7sp.apps.googleusercontent.com
-      APP_HOST: http://localhost,http://localhost:5173
-      RESEND_API_KEY: replace_with_your_resend_api_key
-
+      REDIS_URL: redis://redis:6379/0
     ports:
       - 80:80
     networks:
       - packstack
     depends_on:
       - database
+      - redis
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A celery_app worker --loglevel=info
+    env_file: .local.env
+    environment:
+      POSTGRES_HOST: database
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - packstack
+    depends_on:
+      - database
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - packstack
+    ports:
+      - "6379:6379"
 
   database:
     restart: always
     image: postgres:14.5-alpine
-    environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: packstack
+    env_file: .local.env
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:

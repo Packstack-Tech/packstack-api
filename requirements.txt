@@ -5,17 +5,17 @@ google-auth
 openai
 python-dotenv==1.0.0
 
-psycopg2-binary==2.9.6
+psycopg2-binary==2.9.9
 python-multipart==0.0.5
-boto3==1.17.27
 alembic==1.8.0
 fastapi-sqlalchemy==0.2.1
 SQLAlchemy==2.0.13
 resend==2.23.0
 stripe==2.53.0
-Pillow==8.4.0
 fastapi>=0.103.2
 pydantic>=1.8.0,<2.0.0
 uvicorn[standard]
 sentry-sdk
+celery[redis]
+anthropic
 git+https://github.com/Packstack-Tech/models.git@v1.3.0#egg=models

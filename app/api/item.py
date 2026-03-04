@@ -13,6 +13,7 @@ from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
 from utils.entity_helpers import resolve_item_fields, resolve_import_category
+from tasks.enrich_product import enrich_product
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,13 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     except Exception:
         logger.exception("Failed to create item")
         raise HTTPException(400, "Unable to create item.")
+
+    if new_item.brand_id and new_item.product_id:
+        enrich_product.delay(
+            new_item.brand_id,
+            new_item.product_id,
+            new_item.product_variant_id,
+        )
 
     return new_item
 

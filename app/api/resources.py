@@ -11,7 +11,6 @@ from sqlalchemy.orm import joinedload
 from models.base import Brand, Condition, Geography, Product, User, Category, Item, ProductVariant
 from utils.auth import authenticate
 from utils.consts import DEVELOPMENT
-from utils.digital_ocean import s3_client
 from utils.weight import convert_weight
 from seed.categories import default_categories
 
@@ -29,13 +28,6 @@ def fetch():
         "conditions": conditions,
         "geographies": geographies,
     }
-
-
-@route.get("/buckets")
-def fetch_buckets():
-    response = s3_client.list_buckets()
-    spaces = [space['Name'] for space in response['Buckets']]
-    return spaces
 
 
 class CreateBrand(BaseModel):

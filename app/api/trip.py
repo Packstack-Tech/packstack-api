@@ -2,17 +2,14 @@ import datetime
 import logging
 import uuid as uuid_module
 
-from io import BytesIO
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import joinedload
-from PIL import Image as PILImage, ImageOps
 
-from models.base import User, Trip, Image, TripGeography, TripCondition, Pack, PackItem
+from models.base import User, Trip, TripGeography, TripCondition, Pack, PackItem
 from utils.auth import authenticate
-from utils.digital_ocean import s3_file_upload, s3_file_delete
 from utils.utils import clone_model
 
 logger = logging.getLogger(__name__)
@@ -227,90 +224,6 @@ def clone(trip_id: int, user: User = Depends(authenticate)):
     return cloned_trip
 
 
-@route.post("/{trip_id}/upload-image", status_code=201)
-def upload_image(trip_id: int, file: UploadFile = File(...), user: User = Depends(authenticate)):
-    trip = db.session.query(Trip).filter_by(id=trip_id).first()
-    if not trip:
-        raise HTTPException(404, "Trip not found.")
-
-    sort_order = len(trip.images)
-    trip_image = Image(user_id=user.id,
-                       trip_id=trip_id,
-                       sort_order=sort_order)
-
-    temp_original = BytesIO()
-    temp_thumb = BytesIO()
-
-    img = PILImage.open(file.file)
-    img = ImageOps.exif_transpose(img)
-    img_format = 'PNG'
-    content_type = PILImage.MIME[img_format]
-
-    thumb = img.copy()
-
-    img.thumbnail([1000, 1000], PILImage.LANCZOS)
-    thumb.thumbnail([250, 250], PILImage.LANCZOS)
-
-    img.save(temp_original, format=img_format, quality=65, optimize=True)
-    thumb.save(temp_thumb, format=img_format, quality=85, optimize=True)
-    temp_original.seek(0)
-    temp_thumb.seek(0)
-
-    try:
-        db.session.add(trip_image)
-        db.session.commit()
-        trip_image.s3 = {'extension': '.png', 'entity': 'trip'}
-        db.session.commit()
-        db.session.refresh(trip_image)
-    except Exception:
-        logger.exception("Failed to create trip image metadata")
-        raise HTTPException(
-            400, "An error occurred while creating image metadata.")
-
-    upload_success = s3_file_upload(
-        temp_original, content_type=content_type, key=trip_image.s3_key)
-
-    upload_thumb_success = s3_file_upload(
-        temp_thumb, content_type=content_type, key=trip_image.s3_key_thumb)
-
-    if not upload_success or not upload_thumb_success:
-        db.session.delete(trip_image)
-        db.session.commit()
-        raise HTTPException(400, "An error occurred while saving image.")
-
-    return trip_image
-
-
-class PhotoOrder(BaseModel):
-    id: int
-    sort_order: int
-
-
-class SortTripPhotos(BaseModel):
-    __root__: List[PhotoOrder]
-
-    def __iter__(self):
-        return iter(self.__root__)
-
-
-@route.post("/{trip_id}/sort-photos")
-def sort_images(trip_id: int, photos: SortTripPhotos, user: User = Depends(authenticate)):
-    photo_mappings = [dict(id=photo.id, sort_order=photo.sort_order)
-                      for photo in photos]
-
-    try:
-        db.session.bulk_update_mappings(Image, photo_mappings)
-        trip = db.session.query(Trip).filter_by(
-            id=trip_id, user_id=user.id).first()
-        db.session.commit()
-        db.session.refresh(trip)
-    except Exception:
-        raise HTTPException(
-            400, "An error occurred while updating photo order.")
-
-    return trip.images
-
-
 @route.delete("/{trip_id}", status_code=204)
 def remove_trip(trip_id: int, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).filter_by(
@@ -318,11 +231,6 @@ def remove_trip(trip_id: int, user: User = Depends(authenticate)):
 
     if not trip:
         raise HTTPException(403, "Permission denied.")
-
-    for image in trip.images:
-        s3_file_delete(image.s3_key)
-        s3_file_delete(image.s3_key_thumb)
-        db.session.delete(image)
 
     linked_packs = db.session.query(Pack).filter_by(
         user_id=user.id, trip_id=trip.id).all()
@@ -334,33 +242,6 @@ def remove_trip(trip_id: int, user: User = Depends(authenticate)):
         db.session.commit()
     except Exception:
         raise HTTPException(400, "An error occurred while deleting trip.")
-
-
-class UpdateImage(BaseModel):
-    caption: str = None
-
-
-@route.put("/{trip_id}/image/{id}")
-def update_image(trip_id: int, id: int, payload: UpdateImage, user: User = Depends(authenticate)):
-    trip = db.session.query(Trip).filter_by(
-        id=trip_id, user_id=user.id).first()
-
-    if not trip:
-        raise HTTPException(403, "Permission denied.")
-
-    image = db.session.query(Image).filter_by(id=id).first()
-
-    if not image:
-        raise HTTPException(404, "Image not found.")
-
-    try:
-        image.caption = payload.caption
-        db.session.commit()
-        db.session.refresh(image)
-    except Exception:
-        raise HTTPException(400, "An error occurred saving image.")
-
-    return image
 
 
 @route.put("/{trip_id}/publish")
@@ -379,25 +260,6 @@ def toggle_publish(trip_id: int, user: User = Depends(authenticate)):
         raise HTTPException(400, "An error occurred.")
 
     return trip
-
-
-@route.delete("/{trip_id}/image/{id}", status_code=204)
-def remove_image(trip_id: int, id: int, user: User = Depends(authenticate)):
-    trip = db.session.query(Trip).filter_by(
-        id=trip_id, user_id=user.id).first()
-
-    if not trip:
-        raise HTTPException(403, "Permission denied.")
-
-    image = db.session.query(Image).filter_by(id=id).first()
-    if not image:
-        raise HTTPException(404, "Image not found.")
-
-    s3_file_delete(image.s3_key)
-    s3_file_delete(image.s3_key_thumb)
-
-    db.session.delete(image)
-    db.session.commit()
 
 
 @route.get("/{trip_id}")

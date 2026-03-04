@@ -1,5 +1,5 @@
 # 
-FROM python:3.9.12
+FROM python:3.12-slim
 
 # 
 WORKDIR /code
@@ -8,6 +8,7 @@ WORKDIR /code
 COPY ./requirements.txt /code/requirements.txt
 
 #
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 RUN python -m pip install --upgrade pip
 
 # 
