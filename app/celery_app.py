@@ -29,6 +29,9 @@ celery_app.conf.update(
     accept_content=["json"],
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    worker_concurrency=1,
+    worker_max_tasks_per_child=10,
+    worker_max_memory_per_child=250_000,  # 250MB
 )
 
 if USE_SSL:
