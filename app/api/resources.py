@@ -1,17 +1,17 @@
 import csv
 import logging
-import statistics
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
-from models.base import Brand, Condition, Geography, Product, User, Category, Item, ProductVariant
+from models.base import Brand, CatalogProduct, Condition, Geography, Product, User, Category, ProductVariant
 from utils.auth import authenticate
 from utils.consts import DEVELOPMENT
-from utils.weight import convert_weight
 from seed.categories import default_categories
 
 logger = logging.getLogger(__name__)
@@ -100,41 +100,73 @@ def create_product(payload: CreateProduct, user: User = Depends(authenticate)):
     return new_product
 
 
-class ProductDetails(BaseModel):
-    brandId: int
-    productId: int
+@route.get("/catalog/search")
+def catalog_search(
+    q: str = "",
+    brand: Optional[str] = Query(None),
+    product: Optional[str] = Query(None),
+):
+    base = db.session.query(CatalogProduct).filter(
+        CatalogProduct.status == "approved")
 
+    if brand is not None and product is not None:
+        entries = base.filter(
+            CatalogProduct.brand_name == brand,
+            CatalogProduct.product_name == product,
+        ).order_by(CatalogProduct.variant_name).all()
 
-@route.post("/product-details")
-def fetch_product_details(payload: ProductDetails, user: User = Depends(authenticate)):
-    conversion_unit = "g" if user.unit_weight == "METRIC" else "oz"
-    items = db.session.query(Item).filter(
-        Item.brand_id == payload.brandId, Item.product_id == payload.productId).all()
+        return [{
+            "id": e.id,
+            "brand_id": e.brand_id,
+            "product_id": e.product_id,
+            "product_variant_id": e.product_variant_id,
+            "variant_name": e.variant_name,
+            "weight": float(e.weight) if e.weight else None,
+            "weight_unit": e.weight_unit,
+            "product_url": e.product_url,
+            "category_suggestion": e.category_suggestion,
+        } for e in entries]
 
-    if not items:
-        raise HTTPException(404, 'No items found.')
+    if brand is not None:
+        query = base.filter(CatalogProduct.brand_name == brand)
+        if q:
+            query = query.filter(CatalogProduct.product_name.ilike(f"%{q}%"))
 
-    weighted_items = [{"weight": item.weight, "unit": item.unit}
-                      for item in items if item.weight != 0]
+        rows = (
+            query
+            .with_entities(
+                func.min(CatalogProduct.product_id).label("product_id"),
+                CatalogProduct.product_name,
+            )
+            .group_by(CatalogProduct.product_name)
+            .order_by(CatalogProduct.product_name)
+            .limit(50)
+            .all()
+        )
+        return [{
+            "product_id": r.product_id,
+            "product_name": r.product_name,
+        } for r in rows]
 
-    if not weighted_items:
-        raise HTTPException(404, 'No items found.')
+    query = base
+    if q:
+        query = query.filter(CatalogProduct.brand_name.ilike(f"%{q}%"))
 
-    try:
-        for item in weighted_items:
-            item["converted_weight"] = convert_weight(
-                item["weight"], item["unit"], conversion_unit)
-    except Exception:
-        raise HTTPException(400, 'Unable to convert weight.')
-
-    median_weight = statistics.median(
-        [item["converted_weight"] for item in weighted_items])
-
-    return {
-        "median": round(median_weight, 1),
-        "items": len(weighted_items),
-        "unit": conversion_unit
-    }
+    rows = (
+        query
+        .with_entities(
+            func.min(CatalogProduct.brand_id).label("brand_id"),
+            CatalogProduct.brand_name,
+        )
+        .group_by(CatalogProduct.brand_name)
+        .order_by(CatalogProduct.brand_name)
+        .limit(20)
+        .all()
+    )
+    return [{
+        "brand_id": r.brand_id,
+        "brand_name": r.brand_name,
+    } for r in rows]
 
 
 @route.get("/brand/search/{query}")
