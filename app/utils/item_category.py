@@ -20,8 +20,7 @@ def get_or_create_item_category(session, category_id, user_id):
 
     try:
         session.add(new_item_category)
-        session.commit()
-        session.refresh(new_item_category)
+        session.flush()
     except Exception:
         logger.exception("Failed to create item category")
         raise HTTPException(400, "An error occurred while creating category.")

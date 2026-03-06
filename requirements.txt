@@ -9,7 +9,7 @@ psycopg2-binary==2.9.9
 python-multipart==0.0.5
 alembic==1.8.0
 fastapi-sqlalchemy==0.2.1
-SQLAlchemy==2.0.13
+SQLAlchemy==2.0.38
 resend==2.23.0
 stripe==2.53.0
 fastapi>=0.103.2

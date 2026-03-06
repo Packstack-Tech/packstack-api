@@ -18,8 +18,7 @@ def resolve_brand(session: Session, brand_name: str) -> int:
 
     brand = Brand(name=name)
     session.add(brand)
-    session.commit()
-    session.refresh(brand)
+    session.flush()
     return brand.id
 
 
@@ -33,8 +32,7 @@ def resolve_product(session: Session, product_name: str, brand_id: int) -> int:
 
     product = Product(name=name, brand_id=brand_id)
     session.add(product)
-    session.commit()
-    session.refresh(product)
+    session.flush()
     return product.id
 
 
@@ -48,8 +46,7 @@ def resolve_product_variant(session: Session, variant_name: str, product_id: int
 
     variant = ProductVariant(name=name, product_id=product_id)
     session.add(variant)
-    session.commit()
-    session.refresh(variant)
+    session.flush()
     return variant.id
 
 
@@ -62,8 +59,7 @@ def resolve_category(session: Session, category_name: str, user_id: int) -> int:
 
     category = Category(name=name, user_id=user_id)
     session.add(category)
-    session.commit()
-    session.refresh(category)
+    session.flush()
     return category.id
 
 
@@ -120,8 +116,7 @@ def resolve_import_category(
             try:
                 new_ic = ItemCategory(user_id=user_id, category_id=base_category_id)
                 session.add(new_ic)
-                session.commit()
-                session.refresh(new_ic)
+                session.flush()
                 result = new_ic.id
             except Exception:
                 session.rollback()
@@ -129,14 +124,12 @@ def resolve_import_category(
         try:
             new_cat = Category(name=category_name, user_id=user_id)
             session.add(new_cat)
-            session.commit()
-            session.refresh(new_cat)
+            session.flush()
             cat_map[cache_key] = new_cat.id
 
             new_ic = ItemCategory(user_id=user_id, category_id=new_cat.id)
             session.add(new_ic)
-            session.commit()
-            session.refresh(new_ic)
+            session.flush()
             result = new_ic.id
         except Exception:
             logger.exception("Failed to create category during import")
