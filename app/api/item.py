@@ -58,6 +58,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     try:
         db.session.add(new_item)
         db.session.commit()
+        db.session.refresh(new_item)
     except Exception:
         logger.exception("Failed to create item")
         raise HTTPException(400, "Unable to create item.")

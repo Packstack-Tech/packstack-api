@@ -214,8 +214,10 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
 
     try:
         db.session.commit()
+        db.session.refresh(user)
     except Exception:
         logger.exception("Failed to update user profile")
+        raise HTTPException(400, "Unable to update profile.")
 
     return user.to_dict()
 

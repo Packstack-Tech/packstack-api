@@ -99,8 +99,7 @@ def create(payload: TripType, user: User = Depends(authenticate)):
 
     try:
         db.session.add(new_trip)
-        db.session.commit()
-        db.session.refresh(new_trip)
+        db.session.flush()
     except Exception:
         raise HTTPException(400, "Unable to create trip.")
 
@@ -109,7 +108,6 @@ def create(payload: TripType, user: User = Depends(authenticate)):
             conditions = [dict(trip_id=new_trip.id, condition_id=id)
                           for id in condition_ids]
             db.session.bulk_insert_mappings(TripCondition, conditions)
-            db.session.commit()
         except Exception:
             logger.exception("Failed to insert trip conditions")
 
@@ -118,11 +116,14 @@ def create(payload: TripType, user: User = Depends(authenticate)):
             geographies = [dict(trip_id=new_trip.id, geography_id=id)
                            for id in geography_ids]
             db.session.bulk_insert_mappings(TripGeography, geographies)
-            db.session.commit()
         except Exception:
             logger.exception("Failed to insert trip geographies")
 
-    db.session.refresh(new_trip)
+    try:
+        db.session.commit()
+        db.session.refresh(new_trip)
+    except Exception:
+        raise HTTPException(400, "Unable to create trip.")
 
     return new_trip
 

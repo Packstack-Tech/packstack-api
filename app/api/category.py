@@ -24,8 +24,7 @@ def create(payload: CategoryType, user: User = Depends(authenticate)):
 
     try:
         db.session.add(new_category)
-        db.session.commit()
-        db.session.refresh(new_category)
+        db.session.flush()
     except Exception:
         raise HTTPException(400, "Unable to create category.")
 

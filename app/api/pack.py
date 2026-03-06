@@ -55,8 +55,7 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
 
     try:
         db.session.add(new_pack)
-        db.session.commit()
-        db.session.refresh(new_pack)
+        db.session.flush()
     except Exception:
         logger.exception("Failed to create pack")
         raise HTTPException(400, "An error occurred while creating pack.")
@@ -92,7 +91,7 @@ def update_pack(id: int, payload: PackType, user: User = Depends(authenticate)):
         pack.title = payload.title
         pack.trip_id = payload.trip_id
         db.session.query(PackItem).filter_by(pack_id=pack.id).delete()
-        db.session.commit()
+        db.session.flush()
     except Exception:
         logger.exception("Failed to update pack")
         raise HTTPException(
@@ -158,19 +157,17 @@ def generate_pack(pack_id: int, user: User = Depends(authenticate)):
     trip = Trip(user_id=user.id, title=pack.title, location=pack.title)
     try:
         db.session.add(trip)
-        db.session.commit()
-        db.session.refresh(trip)
+        db.session.flush()
     except Exception:
         raise HTTPException(400, "An error occurred while generating pack.")
 
     pack.trip_id = trip.id
     try:
         db.session.commit()
-        db.session.refresh(pack)
+        db.session.refresh(trip)
     except Exception:
         raise HTTPException(400, "An error occurred while associating pack.")
 
-    db.session.refresh(trip)
     return trip
 
 
