@@ -33,6 +33,7 @@ class ItemType(BaseModel):
     weight: float = None
     unit: str = None
     price: float = None
+    calories: float = None
     consumable: bool = False
     product_url: str = None
     wishlist: bool = None

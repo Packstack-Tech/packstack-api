@@ -9,17 +9,21 @@ def compute_pack_summary(pack):
     """
     breakdown = {"base_g": 0.0, "worn_g": 0.0, "consumable_g": 0.0, "total_g": 0.0}
     category_totals = {}
+    total_calories = 0.0
 
     for pi in pack.items:
         item = pi.item
+        qty = float(pi.quantity or 1)
         weight_g = float(item.weight or 0) * CONVERSION_TO_GRAMS.get(item.unit, 1)
-        qty_weight_g = weight_g * float(pi.quantity or 1)
+        qty_weight_g = weight_g * qty
 
         breakdown["total_g"] += qty_weight_g
         if pi.worn:
             breakdown["worn_g"] += weight_g
         if item.consumable:
             breakdown["consumable_g"] += qty_weight_g
+
+        total_calories += float(item.calories or 0) * qty
 
         cat_name = (
             item.category.category.name
@@ -38,6 +42,7 @@ def compute_pack_summary(pack):
     return {
         "weight_breakdown": {k: round(v, 2) for k, v in breakdown.items()},
         "category_weights": category_weights,
+        "total_calories": round(total_calories),
     }
 
 

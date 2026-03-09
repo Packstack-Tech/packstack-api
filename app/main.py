@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 
 from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
-from api import user, resources, item, trip, category, pack
+from api import user, resources, item, trip, category, pack, kit
 
 # if DEVELOPMENT:
 from sqlalchemy import create_engine
@@ -78,6 +78,13 @@ app.include_router(
     category.route,
     prefix="/category",
     tags=["category"],
+    responses={404: {"description": "Not found"}}
+)
+
+app.include_router(
+    kit.route,
+    prefix="/kit",
+    tags=["kit"],
     responses={404: {"description": "Not found"}}
 )
 
