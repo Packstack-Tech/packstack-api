@@ -1,4 +1,6 @@
+import datetime
 import logging
+import random
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -7,106 +9,140 @@ from sqlalchemy import func
 from pydantic import BaseModel
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
+from typing import Optional
 
-from models.base import User, PasswordReset, EmailVerification
+from models.base import User, EmailVerification, AuthOtp
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
 from utils.consts import DEVELOPMENT, GOOGLE_CLIENT_IDS
-from utils.resend_email import send_password_reset, send_verification_email, create_contact
+from utils.resend_email import send_verification_email, send_otp_email, create_contact
 
 logger = logging.getLogger(__name__)
 
 route = APIRouter()
 
+OTP_EXPIRY_MINUTES = 10
 
-class UserRegister(BaseModel):
+
+def _generate_otp() -> str:
+    return f"{random.randint(0, 999999):06d}"
+
+
+class SendOtpPayload(BaseModel):
     email: str
-    username: str
-    password: str
+    username: Optional[str] = None
+    is_registration: bool
 
 
-@route.post("", status_code=201)
-def register(payload: UserRegister, response: Response):
+@route.post("/send-otp")
+def send_otp(payload: SendOtpPayload):
     email = payload.email.strip().lower()
-    username = payload.username.strip()
-    password = payload.password.strip()
 
-    existing_account = db.session.query(User).filter((User.email == email) | (
-        func.lower(User.username) == username.lower())).first()
+    if payload.is_registration:
+        if not payload.username:
+            raise HTTPException(400, "Username is required for registration.")
 
-    if existing_account:
-        raise HTTPException(
-            status_code=409, detail="Email or username is already registered.")
+        username = payload.username.strip()
 
-    if len(username) > 15:
-        raise HTTPException(
-            status_code=400, detail="Username cannot exceed 15 characters.")
+        if len(username) > 15:
+            raise HTTPException(400, "Username cannot exceed 15 characters.")
 
-    if len(password) < 6:
-        raise HTTPException(
-            status_code=400, detail="Password must be at least 6 characters long.")
+        existing = db.session.query(User).filter(
+            (User.email == email) | (func.lower(User.username) == username.lower())
+        ).first()
 
-    hashed_password = User.generate_hash(password)
-    new_user = User(email=email, username=username, password=hashed_password)
+        if existing:
+            raise HTTPException(409, "Email or username is already registered.")
+    else:
+        user = db.session.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(404, "No account found with that email.")
+
+    db.session.query(AuthOtp).filter(
+        AuthOtp.email == email,
+        AuthOtp.is_registration == payload.is_registration,
+    ).delete()
+
+    otp_code = _generate_otp()
+    otp = AuthOtp(
+        email=email,
+        otp_code=otp_code,
+        username=payload.username.strip() if payload.username else None,
+        is_registration=payload.is_registration,
+        expires_at=datetime.datetime.utcnow() + datetime.timedelta(minutes=OTP_EXPIRY_MINUTES),
+    )
 
     try:
-        db.session.add(new_user)
+        db.session.add(otp)
         db.session.commit()
-        db.session.refresh(new_user)
     except Exception:
-        raise HTTPException(status_code=400, detail="An error occurred.")
-
-    jwt_token = generate_jwt(new_user)
-    set_auth_cookie(response, jwt_token)
-
-    verification = EmailVerification(user_id=new_user.id)
-    try:
-        db.session.add(verification)
-        db.session.commit()
-        db.session.refresh(verification)
-    except Exception:
-        logger.exception("Failed to create email verification")
+        logger.exception("Failed to create OTP")
+        raise HTTPException(400, "An error occurred.")
 
     if not DEVELOPMENT:
-        send_verification_email(email, verification.callback_id)
-        create_contact(email)
+        send_otp_email(email, otp_code)
 
-    return {
-        "user": new_user.to_dict(),
-        "token": jwt_token
-    }
+    return {"sent": True}
 
 
-class UserLogin(BaseModel):
-    emailOrUsername: str
-    password: str
+class VerifyOtpPayload(BaseModel):
+    email: str
+    otp: str
+    is_registration: bool
+    username: Optional[str] = None
 
 
-@route.post("/login")
-def login(payload: UserLogin, response: Response):
-    emailOrUsername = payload.emailOrUsername.strip().lower()
+@route.post("/verify-otp")
+def verify_otp(payload: VerifyOtpPayload, response: Response):
+    email = payload.email.strip().lower()
+    otp = payload.otp.strip()
 
-    user = db.session.query(User).filter((User.email == emailOrUsername) | (
-        func.lower(User.username) == emailOrUsername)).first()
+    record = db.session.query(AuthOtp).filter(
+        AuthOtp.email == email,
+        AuthOtp.is_registration == payload.is_registration,
+        AuthOtp.expires_at > datetime.datetime.utcnow(),
+    ).order_by(AuthOtp.created_at.desc()).first()
 
-    if not user:
-        raise HTTPException(
-            status_code=401, detail="Invalid username or password.")
+    if not record or record.otp_code != otp:
+        raise HTTPException(401, "Invalid or expired code.")
 
-    if not user.password:
-        raise HTTPException(
-            status_code=401, detail="Invalid username or password.")
+    if payload.is_registration:
+        username = (payload.username or record.username or "").strip()
+        if not username:
+            raise HTTPException(400, "Username is required for registration.")
 
-    valid_password = User.verify_hash(payload.password, user.password)
-    if not valid_password:
-        raise HTTPException(
-            status_code=401, detail="Invalid username or password.")
+        existing = db.session.query(User).filter(
+            (User.email == email) | (func.lower(User.username) == username.lower())
+        ).first()
+        if existing:
+            raise HTTPException(409, "Email or username is already registered.")
+
+        new_user = User(email=email, username=username, password=None, email_verified=True)
+        try:
+            db.session.add(new_user)
+            db.session.commit()
+            db.session.refresh(new_user)
+        except Exception:
+            logger.exception("Failed to create user")
+            raise HTTPException(400, "An error occurred.")
+
+        if not DEVELOPMENT:
+            create_contact(email)
+
+        user = new_user
+    else:
+        user = db.session.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(404, "Account not found.")
+
+    db.session.query(AuthOtp).filter(AuthOtp.email == email).delete()
+    db.session.commit()
 
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)
 
     return {
         "user": user.to_dict(),
-        "token": jwt_token
+        "token": jwt_token,
     }
 
 
@@ -299,65 +335,3 @@ def resend_verification(user: User = Depends(authenticate)):
         send_verification_email(user.email, verification.callback_id)
 
     return {"sent": True}
-
-
-class RequestReset(BaseModel):
-    email: str
-
-
-@route.post("/request-password-reset")
-def request_password_reset(payload: RequestReset):
-    email = payload.email.strip().lower()
-    user = db.session.query(User).filter(
-        func.lower(User.email) == email).first()
-
-    if not user:
-        return Response(status_code=200)
-
-    reset_request = PasswordReset(user_id=user.id)
-    try:
-        db.session.add(reset_request)
-        db.session.commit()
-        db.session.refresh(reset_request)
-    except Exception:
-        logger.exception("Failed to create password reset request")
-        raise HTTPException(400, "An error occurred.")
-
-    if not DEVELOPMENT:
-        send_password_reset(email, reset_request.callback_id)
-
-    return Response(status_code=200)
-
-
-class PasswordResetData(BaseModel):
-    password: str
-    callback_id: str
-
-
-@route.post("/reset-password")
-def password_reset(payload: PasswordResetData):
-    password = payload.password.strip()
-    callback_id = payload.callback_id.strip()
-
-    reset_request = db.session.query(PasswordReset).filter_by(
-        callback_id=callback_id).first()
-
-    if not reset_request:
-        raise HTTPException(400, "Invalid request.")
-
-    user = db.session.query(User).filter_by(id=reset_request.user_id).first()
-
-    if not user:
-        raise HTTPException(404, "User does not exist.")
-
-    hashed_password = User.generate_hash(password)
-    user.password = hashed_password
-
-    try:
-        db.session.delete(reset_request)
-        db.session.commit()
-    except Exception:
-        logger.exception("Failed to reset password")
-        raise HTTPException(400, "An error occurred.")
-
-    return Response(status_code=200)

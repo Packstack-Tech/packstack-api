@@ -69,22 +69,27 @@ def send_verification_email(email, token):
         sentry_sdk.capture_exception(e)
 
 
-def send_password_reset(email, token):
+def send_otp_email(email, otp_code):
+    code_style = (
+        "display: inline-block; font-size: 32px; font-weight: 700; "
+        "letter-spacing: 0.3em; color: #111827; padding: 16px 24px; "
+        "background-color: #f3f4f6; border-radius: 8px;"
+    )
     body = (
-        "<p>We received a request to reset your password.</p>"
-        "<p>Click the button below to choose a new password.</p>"
-        f'<p style="margin: 28px 0;"><a href="{APP_HOST}/auth/reset-password/{token}" '
-        f'target="_blank" style="{BUTTON_STYLE}">Reset password</a></p>'
+        "<p>Use the code below to sign in to Packstack.</p>"
+        f'<p style="margin: 28px 0; text-align: center;">'
+        f'<span style="{code_style}">{otp_code}</span></p>'
         '<p style="color: #6b7280; font-size: 13px;">'
-        "If you did not request this, you can safely ignore this email.</p>"
+        "This code expires in 10 minutes. If you did not request this, "
+        "you can safely ignore this email.</p>"
     )
     try:
         resend.Emails.send({
             "from": FROM_EMAIL,
             "to": [email],
-            "subject": "Password reset request",
+            "subject": f"Your Packstack login code is {otp_code}",
             "html": _wrap(body),
         })
     except Exception as e:
-        logger.exception("Failed to send password reset email")
+        logger.exception("Failed to send OTP email")
         sentry_sdk.capture_exception(e)
