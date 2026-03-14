@@ -60,6 +60,34 @@ def fetch_info(trip_id: str):
     }
 
 
+@route.get("/meta/{trip_id}")
+def fetch_meta(trip_id: str):
+    try:
+        uuid_val = uuid_module.UUID(trip_id)
+        trip = db.session.query(Trip).filter_by(uuid=uuid_val).first()
+    except ValueError:
+        try:
+            trip = db.session.query(Trip).filter_by(id=int(trip_id)).first()
+        except (ValueError, TypeError):
+            raise HTTPException(400, "Invalid trip identifier.")
+
+    if not trip:
+        raise HTTPException(404, "Trip not found.")
+
+    user = db.session.query(User.username,
+                            User.unit_distance,
+                            User.unit_temperature,
+                            User.unit_weight).filter_by(id=trip.user_id).first()
+
+    if not user:
+        raise HTTPException(404, "Trip owner not found.")
+
+    return {
+        "trip": trip,
+        "user": user._asdict()
+    }
+
+
 @route.get("/sitemap")
 def get_sitemap():
     trips = db.session.query(Trip.id, Trip.title, Trip.updated_at).filter_by(
