@@ -17,3 +17,10 @@ RESEND_API_KEY = os.getenv('RESEND_API_KEY')
 GOOGLE_CLIENT_IDS = [
     cid.strip() for cid in os.getenv('GOOGLE_CLIENT_IDS', '').split(',') if cid.strip()
 ]
+
+APPLE_CLIENT_IDS = [
+    cid.strip() for cid in os.getenv('APPLE_CLIENT_IDS', '').split(',') if cid.strip()
+]
+
+REVIEW_EMAIL = os.getenv('REVIEW_EMAIL')
+REVIEW_OTP = os.getenv('REVIEW_OTP')

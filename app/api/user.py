@@ -1,8 +1,12 @@
 import datetime
+import json
 import logging
 import random
+import time
 import uuid
 
+import jwt as pyjwt
+import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi_sqlalchemy import db
 from sqlalchemy import func
@@ -13,7 +17,7 @@ from typing import Optional
 
 from models.base import User, EmailVerification, AuthOtp
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
-from utils.consts import DEVELOPMENT, GOOGLE_CLIENT_IDS
+from utils.consts import DEVELOPMENT, GOOGLE_CLIENT_IDS, APPLE_CLIENT_IDS, REVIEW_EMAIL, REVIEW_OTP
 from utils.resend_email import send_verification_email, send_otp_email, create_contact
 
 logger = logging.getLogger(__name__)
@@ -21,6 +25,35 @@ logger = logging.getLogger(__name__)
 route = APIRouter()
 
 OTP_EXPIRY_MINUTES = 10
+APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_JWKS_TTL = 3600
+
+_apple_jwks_cache = {"keys": None, "fetched_at": 0}
+
+
+def _get_apple_public_key(kid):
+    now = time.time()
+    if _apple_jwks_cache["keys"] is None or now - _apple_jwks_cache["fetched_at"] > APPLE_JWKS_TTL:
+        resp = http_requests.get(APPLE_JWKS_URL, timeout=10)
+        resp.raise_for_status()
+        _apple_jwks_cache["keys"] = resp.json()["keys"]
+        _apple_jwks_cache["fetched_at"] = now
+
+    for key in _apple_jwks_cache["keys"]:
+        if key["kid"] == kid:
+            return pyjwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+
+    _apple_jwks_cache["keys"] = None
+    resp = http_requests.get(APPLE_JWKS_URL, timeout=10)
+    resp.raise_for_status()
+    _apple_jwks_cache["keys"] = resp.json()["keys"]
+    _apple_jwks_cache["fetched_at"] = time.time()
+
+    for key in _apple_jwks_cache["keys"]:
+        if key["kid"] == kid:
+            return pyjwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+
+    return None
 
 
 def _generate_otp() -> str:
@@ -36,6 +69,9 @@ class SendOtpPayload(BaseModel):
 @route.post("/send-otp")
 def send_otp(payload: SendOtpPayload):
     email = payload.email.strip().lower()
+
+    if REVIEW_EMAIL and email == REVIEW_EMAIL.strip().lower():
+        return {"sent": True}
 
     if payload.is_registration:
         if not payload.username:
@@ -95,6 +131,19 @@ class VerifyOtpPayload(BaseModel):
 def verify_otp(payload: VerifyOtpPayload, response: Response):
     email = payload.email.strip().lower()
     otp = payload.otp.strip()
+
+    if (
+        REVIEW_EMAIL
+        and REVIEW_OTP
+        and email == REVIEW_EMAIL.strip().lower()
+        and otp == REVIEW_OTP.strip()
+    ):
+        user = db.session.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(404, "Account not found.")
+        jwt_token = generate_jwt(user)
+        set_auth_cookie(response, jwt_token)
+        return {"user": user.to_dict(), "token": jwt_token}
 
     record = db.session.query(AuthOtp).filter(
         AuthOtp.email == email,
@@ -216,6 +265,94 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
     return {
         "user": user.to_dict(),
         "token": jwt_token
+    }
+
+
+class AppleAuthPayload(BaseModel):
+    identity_token: str
+    full_name: Optional[str] = None
+
+
+@route.post("/apple-auth")
+def apple_auth(payload: AppleAuthPayload, response: Response):
+    if not APPLE_CLIENT_IDS:
+        raise HTTPException(
+            status_code=500, detail="Apple authentication is not configured.")
+
+    try:
+        header = pyjwt.get_unverified_header(payload.identity_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Apple token.")
+
+    kid = header.get("kid")
+    if not kid:
+        raise HTTPException(status_code=401, detail="Invalid Apple token.")
+
+    public_key = _get_apple_public_key(kid)
+    if not public_key:
+        raise HTTPException(status_code=401, detail="Unable to verify Apple token.")
+
+    try:
+        decoded = pyjwt.decode(
+            payload.identity_token,
+            public_key,
+            algorithms=["RS256"],
+            audience=APPLE_CLIENT_IDS,
+            issuer="https://appleid.apple.com",
+        )
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Apple token has expired.")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid Apple token.")
+
+    apple_sub = decoded["sub"]
+    email = decoded.get("email", "")
+    name = payload.full_name or ""
+
+    if not email:
+        raise HTTPException(status_code=401, detail="Apple token missing email.")
+
+    user = db.session.query(User).filter_by(apple_id=apple_sub).first()
+
+    if not user:
+        user = db.session.query(User).filter(
+            func.lower(User.email) == email.lower()
+        ).first()
+        if user:
+            user.apple_id = apple_sub
+            user.email_verified = True
+            db.session.commit()
+
+    if not user:
+        username = email.split("@")[0][:15]
+        existing = db.session.query(User).filter(
+            func.lower(User.username) == username.lower()
+        ).first()
+        if existing:
+            username = (username[:7] + uuid.uuid4().hex[:8])[:15]
+
+        user = User(
+            email=email,
+            username=username,
+            password=None,
+            apple_id=apple_sub,
+            display_name=name[:50] if name else None,
+            email_verified=True,
+        )
+        db.session.add(user)
+        db.session.commit()
+        db.session.refresh(user)
+
+        if not DEVELOPMENT:
+            first_name, _, last_name = name.partition(" ") if name else ("", "", "")
+            create_contact(email, first_name, last_name)
+
+    jwt_token = generate_jwt(user)
+    set_auth_cookie(response, jwt_token)
+
+    return {
+        "user": user.to_dict(),
+        "token": jwt_token,
     }
 
 

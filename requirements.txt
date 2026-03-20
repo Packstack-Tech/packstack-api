@@ -2,6 +2,7 @@ PyJWT==1.7.1
 requests==2.31.0
 passlib==1.7.2
 google-auth
+cryptography
 openai
 python-dotenv==1.0.0
 
