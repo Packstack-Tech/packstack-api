@@ -9,15 +9,24 @@ import jwt as pyjwt
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi_sqlalchemy import db
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from pydantic import BaseModel
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 from typing import Optional
 
-from models.base import User, EmailVerification, AuthOtp
+from models.base import (
+    User, EmailVerification, AuthOtp,
+    Item, Category, ItemCategory, Kit, KitItem, Pack, PackItem,
+    Post, Trip, Image, TripCondition, TripGeography,
+    Comment, Follow, LikePost, LikeTrip, LikeComment, LikeImage, Reported,
+)
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
-from utils.consts import DEVELOPMENT, GOOGLE_CLIENT_IDS, APPLE_CLIENT_IDS, REVIEW_EMAIL, REVIEW_OTP
+from cryptography.hazmat.primitives import serialization
+from utils.consts import (
+    DEVELOPMENT, GOOGLE_CLIENT_IDS, APPLE_CLIENT_IDS, REVIEW_EMAIL, REVIEW_OTP,
+    APPLE_KEY_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY, GOOGLE_CLIENT_SECRET,
+)
 from utils.resend_email import send_verification_email, send_otp_email, create_contact
 
 logger = logging.getLogger(__name__)
@@ -58,6 +67,95 @@ def _get_apple_public_key(kid):
 
 def _generate_otp() -> str:
     return f"{random.randint(0, 999999):06d}"
+
+
+def _generate_apple_client_secret():
+    private_key = serialization.load_pem_private_key(
+        APPLE_PRIVATE_KEY.encode("utf-8"), password=None
+    )
+    now = int(time.time())
+    payload = {
+        "iss": APPLE_TEAM_ID,
+        "iat": now,
+        "exp": now + 86400 * 180,
+        "aud": "https://appleid.apple.com",
+        "sub": APPLE_CLIENT_IDS[0],
+    }
+    token = pyjwt.encode(payload, private_key, algorithm="ES256", headers={"kid": APPLE_KEY_ID})
+    if isinstance(token, bytes):
+        token = token.decode("utf-8")
+    return token
+
+
+def _exchange_apple_code(authorization_code):
+    """Exchange an Apple authorization code for a refresh token."""
+    try:
+        client_secret = _generate_apple_client_secret()
+        resp = http_requests.post(
+            "https://appleid.apple.com/auth/token",
+            data={
+                "client_id": APPLE_CLIENT_IDS[0],
+                "client_secret": client_secret,
+                "code": authorization_code,
+                "grant_type": "authorization_code",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json().get("refresh_token")
+    except Exception:
+        logger.warning("Failed to exchange Apple authorization code", exc_info=True)
+        return None
+
+
+def _revoke_apple_token(refresh_token):
+    """Revoke an Apple refresh token. Best-effort, never raises."""
+    try:
+        client_secret = _generate_apple_client_secret()
+        http_requests.post(
+            "https://appleid.apple.com/auth/revoke",
+            data={
+                "client_id": APPLE_CLIENT_IDS[0],
+                "client_secret": client_secret,
+                "token": refresh_token,
+                "token_type_hint": "refresh_token",
+            },
+            timeout=10,
+        )
+    except Exception:
+        logger.warning("Failed to revoke Apple token", exc_info=True)
+
+
+def _exchange_google_code(server_auth_code):
+    """Exchange a Google server auth code for a refresh token."""
+    try:
+        resp = http_requests.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": GOOGLE_CLIENT_IDS[0],
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "code": server_auth_code,
+                "grant_type": "authorization_code",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json().get("refresh_token")
+    except Exception:
+        logger.warning("Failed to exchange Google server auth code", exc_info=True)
+        return None
+
+
+def _revoke_google_token(refresh_token):
+    """Revoke a Google refresh token. Best-effort, never raises."""
+    try:
+        http_requests.post(
+            "https://oauth2.googleapis.com/revoke",
+            params={"token": refresh_token},
+            timeout=10,
+        )
+    except Exception:
+        logger.warning("Failed to revoke Google token", exc_info=True)
 
 
 class SendOtpPayload(BaseModel):
@@ -197,6 +295,7 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
 
 class GoogleAuthPayload(BaseModel):
     credential: str
+    server_auth_code: Optional[str] = None
 
 
 @route.post("/google-auth")
@@ -259,6 +358,12 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
 
+    if payload.server_auth_code and GOOGLE_CLIENT_SECRET:
+        refresh_token = _exchange_google_code(payload.server_auth_code)
+        if refresh_token:
+            user.google_refresh_token = refresh_token
+            db.session.commit()
+
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)
 
@@ -271,6 +376,7 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
 class AppleAuthPayload(BaseModel):
     identity_token: str
     full_name: Optional[str] = None
+    authorization_code: Optional[str] = None
 
 
 @route.post("/apple-auth")
@@ -347,6 +453,12 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
 
+    if payload.authorization_code and APPLE_PRIVATE_KEY:
+        refresh_token = _exchange_apple_code(payload.authorization_code)
+        if refresh_token:
+            user.apple_refresh_token = refresh_token
+            db.session.commit()
+
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)
 
@@ -358,6 +470,122 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
 
 @route.post("/logout")
 def logout(response: Response):
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}
+
+
+@route.delete("")
+def delete_account(response: Response, user: User = Depends(authenticate)):
+    user_id = user.id
+    email = user.email
+
+    if user.apple_refresh_token and APPLE_PRIVATE_KEY:
+        _revoke_apple_token(user.apple_refresh_token)
+
+    if user.google_refresh_token:
+        _revoke_google_token(user.google_refresh_token)
+
+    try:
+        kit_ids = [r[0] for r in db.session.query(Kit.id).filter_by(user_id=user_id)]
+        pack_ids = [r[0] for r in db.session.query(Pack.id).filter_by(user_id=user_id)]
+        trip_ids = [r[0] for r in db.session.query(Trip.id).filter_by(user_id=user_id)]
+        item_ids = [r[0] for r in db.session.query(Item.id).filter_by(user_id=user_id)]
+        post_ids = [r[0] for r in db.session.query(Post.id).filter_by(user_id=user_id)]
+        image_ids = [r[0] for r in db.session.query(Image.id).filter_by(user_id=user_id)]
+        comment_ids = [r[0] for r in db.session.query(Comment.id).filter_by(user_id=user_id)]
+
+        other_comment_filters = []
+        if post_ids:
+            other_comment_filters.append(Comment.post_id.in_(post_ids))
+        if trip_ids:
+            other_comment_filters.append(Comment.trip_id.in_(trip_ids))
+        if other_comment_filters:
+            other_comment_ids = [r[0] for r in db.session.query(Comment.id).filter(
+                or_(*other_comment_filters),
+                Comment.user_id != user_id,
+            )]
+        else:
+            other_comment_ids = []
+        all_comment_ids = list(set(comment_ids + other_comment_ids))
+
+        # Likes on user's content + user's own likes on others' content
+        if all_comment_ids:
+            db.session.query(LikeComment).filter(LikeComment.comment_id.in_(all_comment_ids)).delete(synchronize_session=False)
+        db.session.query(LikeComment).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        if post_ids:
+            db.session.query(LikePost).filter(LikePost.post_id.in_(post_ids)).delete(synchronize_session=False)
+        db.session.query(LikePost).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        if trip_ids:
+            db.session.query(LikeTrip).filter(LikeTrip.trip_id.in_(trip_ids)).delete(synchronize_session=False)
+        db.session.query(LikeTrip).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        if image_ids:
+            db.session.query(LikeImage).filter(LikeImage.image_id.in_(image_ids)).delete(synchronize_session=False)
+        db.session.query(LikeImage).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Follows (both directions) and reports
+        db.session.query(Follow).filter(
+            (Follow.user_id == user_id) | (Follow.following_id == user_id)
+        ).delete(synchronize_session=False)
+
+        if post_ids:
+            db.session.query(Reported).filter(Reported.post_id.in_(post_ids)).delete(synchronize_session=False)
+        if trip_ids:
+            db.session.query(Reported).filter(Reported.trip_id.in_(trip_ids)).delete(synchronize_session=False)
+        db.session.query(Reported).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Comments (user's own + others' on user's content)
+        if all_comment_ids:
+            db.session.query(Comment).filter(Comment.id.in_(all_comment_ids)).delete(synchronize_session=False)
+
+        # Kit items + kits
+        if kit_ids:
+            db.session.query(KitItem).filter(KitItem.kit_id.in_(kit_ids)).delete(synchronize_session=False)
+        if item_ids:
+            db.session.query(KitItem).filter(KitItem.item_id.in_(item_ids)).delete(synchronize_session=False)
+        db.session.query(Kit).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Pack items + packs
+        if pack_ids:
+            db.session.query(PackItem).filter(PackItem.pack_id.in_(pack_ids)).delete(synchronize_session=False)
+        if item_ids:
+            db.session.query(PackItem).filter(PackItem.item_id.in_(item_ids)).delete(synchronize_session=False)
+        db.session.query(Pack).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Trip associations
+        if trip_ids:
+            db.session.query(TripCondition).filter(TripCondition.trip_id.in_(trip_ids)).delete(synchronize_session=False)
+            db.session.query(TripGeography).filter(TripGeography.trip_id.in_(trip_ids)).delete(synchronize_session=False)
+
+        # Images
+        db.session.query(Image).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Posts
+        db.session.query(Post).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Trips
+        db.session.query(Trip).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Items, then item categories, then categories
+        db.session.query(Item).filter_by(user_id=user_id).delete(synchronize_session=False)
+        db.session.query(ItemCategory).filter_by(user_id=user_id).delete(synchronize_session=False)
+        db.session.query(Category).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Auth artifacts
+        db.session.query(EmailVerification).filter_by(user_id=user_id).delete(synchronize_session=False)
+        db.session.query(AuthOtp).filter(AuthOtp.email == email).delete(synchronize_session=False)
+
+        # User
+        db.session.query(User).filter_by(id=user_id).delete(synchronize_session=False)
+
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to delete account")
+        raise HTTPException(500, "Failed to delete account.")
+
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
 

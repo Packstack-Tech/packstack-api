@@ -22,5 +22,12 @@ APPLE_CLIENT_IDS = [
     cid.strip() for cid in os.getenv('APPLE_CLIENT_IDS', '').split(',') if cid.strip()
 ]
 
+APPLE_KEY_ID = os.getenv('APPLE_KEY_ID')
+APPLE_TEAM_ID = os.getenv('APPLE_TEAM_ID')
+_raw_apple_key = os.getenv('APPLE_PRIVATE_KEY')
+APPLE_PRIVATE_KEY = _raw_apple_key.replace("\\n", "\n") if _raw_apple_key else None
+
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+
 REVIEW_EMAIL = os.getenv('REVIEW_EMAIL')
 REVIEW_OTP = os.getenv('REVIEW_OTP')
