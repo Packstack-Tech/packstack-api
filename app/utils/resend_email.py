@@ -48,6 +48,13 @@ def create_contact(email: str, first_name: str = "", last_name: str = ""):
         sentry_sdk.capture_exception(e)
 
 
+def delete_contact(email: str):
+    try:
+        resend.Contacts.remove({"email": email})
+    except Exception:
+        logger.warning("Failed to delete Resend contact for %s", email)
+
+
 def send_verification_email(email, token):
     body = (
         "<p>Thanks for signing up for Packstack!</p>"

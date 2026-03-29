@@ -10,6 +10,7 @@ import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi_sqlalchemy import db
 from sqlalchemy import func, or_
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
@@ -27,11 +28,24 @@ from utils.consts import (
     DEVELOPMENT, GOOGLE_CLIENT_IDS, APPLE_CLIENT_IDS, REVIEW_EMAIL, REVIEW_OTP,
     APPLE_KEY_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY, GOOGLE_CLIENT_SECRET,
 )
-from utils.resend_email import send_verification_email, send_otp_email, create_contact
+from utils.resend_email import send_verification_email, send_otp_email, create_contact, delete_contact
 
 logger = logging.getLogger(__name__)
 
 route = APIRouter()
+
+PROFILE_LOAD_OPTIONS = (
+    selectinload(User.trips),
+    selectinload(User.avatar),
+)
+
+
+def user_with_profile(user_id):
+    """Load a User with the relationships needed by to_dict()."""
+    return db.session.query(User).options(
+        *PROFILE_LOAD_OPTIONS
+    ).filter_by(id=user_id).first()
+
 
 OTP_EXPIRY_MINUTES = 10
 APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
@@ -239,6 +253,7 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
         user = db.session.query(User).filter(User.email == email).first()
         if not user:
             raise HTTPException(404, "Account not found.")
+        user = user_with_profile(user.id)
         jwt_token = generate_jwt(user)
         set_auth_cookie(response, jwt_token)
         return {"user": user.to_dict(), "token": jwt_token}
@@ -284,6 +299,7 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
     db.session.query(AuthOtp).filter(AuthOtp.email == email).delete()
     db.session.commit()
 
+    user = user_with_profile(user.id)
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)
 
@@ -364,6 +380,7 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
             user.google_refresh_token = refresh_token
             db.session.commit()
 
+    user = user_with_profile(user.id)
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)
 
@@ -459,6 +476,7 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
             user.apple_refresh_token = refresh_token
             db.session.commit()
 
+    user = user_with_profile(user.id)
     jwt_token = generate_jwt(user)
     set_auth_cookie(response, jwt_token)
 
@@ -484,6 +502,9 @@ def delete_account(response: Response, user: User = Depends(authenticate)):
 
     if user.google_refresh_token:
         _revoke_google_token(user.google_refresh_token)
+
+    if not DEVELOPMENT:
+        delete_contact(email)
 
     try:
         kit_ids = [r[0] for r in db.session.query(Kit.id).filter_by(user_id=user_id)]
@@ -620,17 +641,17 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
         logger.exception("Failed to update user profile")
         raise HTTPException(400, "Unable to update profile.")
 
-    return user.to_dict()
+    return user_with_profile(user.id).to_dict()
 
 
 @route.get("")
 def fetch(user: User = Depends(authenticate)):
-    return user.to_dict()
+    return user_with_profile(user.id).to_dict()
 
 
 @route.get("/id/{id}")
 def get_profile_by_id(id: int):
-    user = db.session.query(User).filter_by(id=id).first()
+    user = user_with_profile(id)
 
     if not user:
         raise HTTPException(404, "User does not exist.")
@@ -640,7 +661,9 @@ def get_profile_by_id(id: int):
 
 @route.get("/profile/{username}")
 def get_profile_by_username(username: str):
-    user = db.session.query(User).filter(func.lower(
+    user = db.session.query(User).options(
+        *PROFILE_LOAD_OPTIONS
+    ).filter(func.lower(
         User.username) == username.strip().lower()).first()
 
     if not user:

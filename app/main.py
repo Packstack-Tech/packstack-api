@@ -2,16 +2,23 @@ from fastapi import FastAPI
 import sentry_sdk
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
+from sqlalchemy import create_engine
 
 from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
 from api import user, resources, item, trip, category, pack, kit
 
-# if DEVELOPMENT:
-from sqlalchemy import create_engine
-from models.base import Base
-engine = create_engine(DATABASE_URL)
-Base.metadata.create_all(engine)
+ENGINE_KWARGS = dict(
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
+engine = create_engine(DATABASE_URL, **ENGINE_KWARGS)
+
+if DEVELOPMENT:
+    from models.base import Base
+    Base.metadata.create_all(engine)
 
 if not DEVELOPMENT:
     sentry_sdk.init(
@@ -22,7 +29,7 @@ if not DEVELOPMENT:
     )
 
 app = FastAPI()
-app.add_middleware(DBSessionMiddleware, db_url=DATABASE_URL)
+app.add_middleware(DBSessionMiddleware, custom_engine=engine)
 
 allowed_origins = [o.strip() for o in APP_HOST.split(',') if o.strip()] if APP_HOST else []
 

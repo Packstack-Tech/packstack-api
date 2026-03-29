@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from models.base import Brand, Product, ProductVariant, Item, CatalogProduct
 from celery_app import celery_app
-from utils.consts import DATABASE_URL
+from utils.consts import WORKER_DATABASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,13 @@ _engine = None
 def _get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(DATABASE_URL)
+        _engine = create_engine(
+            WORKER_DATABASE_URL,
+            pool_size=2,
+            max_overflow=3,
+            pool_pre_ping=True,
+            pool_recycle=300,
+        )
     return _engine
 
 
