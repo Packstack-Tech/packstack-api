@@ -90,29 +90,21 @@ def update_pack(id: int, payload: PackType, user: User = Depends(authenticate)):
     try:
         pack.title = payload.title
         pack.trip_id = payload.trip_id
-        db.session.query(PackItem).filter_by(pack_id=pack.id).delete()
-        db.session.flush()
-    except Exception:
-        logger.exception("Failed to update pack")
-        raise HTTPException(
-            400, "An error occurred while updating pack items.")
-
-    for item in payload.items:
-        new_item = PackItem(pack_id=pack.id,
-                            item_id=item.item_id,
-                            quantity=item.quantity,
-                            worn=item.worn,
-                            checked=item.checked,
-                            sort_order=item.sort_order)
-
-        db.session.add(new_item)
-
-    try:
+        pack.items = [
+            PackItem(pack_id=pack.id,
+                     item_id=item.item_id,
+                     quantity=item.quantity,
+                     worn=item.worn,
+                     checked=item.checked,
+                     sort_order=item.sort_order)
+            for item in payload.items
+        ]
         db.session.commit()
         db.session.refresh(pack)
     except Exception:
-        logger.exception("Failed to add updated pack items")
-        raise HTTPException(400, "An error occurred while adding pack items.")
+        logger.exception("Failed to update pack")
+        raise HTTPException(
+            400, "An error occurred while updating pack.")
 
     return serialize_pack(pack)
 

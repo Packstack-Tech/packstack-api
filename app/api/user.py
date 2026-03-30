@@ -28,7 +28,7 @@ from utils.consts import (
     DEVELOPMENT, GOOGLE_CLIENT_IDS, APPLE_CLIENT_IDS, REVIEW_EMAIL, REVIEW_OTP,
     APPLE_KEY_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY, GOOGLE_CLIENT_SECRET,
 )
-from utils.resend_email import send_verification_email, send_otp_email, create_contact, delete_contact
+from utils.resend_email import send_otp_email, create_contact, delete_contact
 
 logger = logging.getLogger(__name__)
 
@@ -672,54 +672,3 @@ def get_profile_by_username(username: str):
     return user.to_dict()
 
 
-class VerifyEmailData(BaseModel):
-    callback_id: str
-
-
-@route.post("/verify-email")
-def verify_email(payload: VerifyEmailData):
-    callback_id = payload.callback_id.strip()
-
-    verification = db.session.query(EmailVerification).filter_by(
-        callback_id=callback_id).first()
-
-    if not verification:
-        raise HTTPException(400, "Invalid or expired verification link.")
-
-    user = db.session.query(User).filter_by(id=verification.user_id).first()
-
-    if not user:
-        raise HTTPException(404, "User does not exist.")
-
-    user.email_verified = True
-
-    try:
-        db.session.query(EmailVerification).filter_by(user_id=user.id).delete()
-        db.session.commit()
-    except Exception:
-        logger.exception("Failed to verify email")
-        raise HTTPException(400, "An error occurred.")
-
-    return {"email_verified": True}
-
-
-@route.post("/resend-verification")
-def resend_verification(user: User = Depends(authenticate)):
-    if user.email_verified:
-        raise HTTPException(400, "Email is already verified.")
-
-    db.session.query(EmailVerification).filter_by(user_id=user.id).delete()
-
-    verification = EmailVerification(user_id=user.id)
-    try:
-        db.session.add(verification)
-        db.session.commit()
-        db.session.refresh(verification)
-    except Exception:
-        logger.exception("Failed to create email verification")
-        raise HTTPException(400, "An error occurred.")
-
-    if not DEVELOPMENT:
-        send_verification_email(user.email, verification.callback_id)
-
-    return {"sent": True}

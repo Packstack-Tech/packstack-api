@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
-from models.base import Brand, CatalogProduct, Condition, Geography, Product, User, Category, ProductVariant
+from models.base import Brand, CatalogProduct, Product, User, Category, ProductVariant
 from utils.auth import authenticate
 from utils.consts import DEVELOPMENT
 from seed.categories import default_categories
@@ -17,17 +17,6 @@ from seed.categories import default_categories
 logger = logging.getLogger(__name__)
 
 route = APIRouter()
-
-
-@route.get("")
-def fetch():
-    conditions = db.session.query(Condition).all()
-    geographies = db.session.query(Geography).all()
-
-    return {
-        "conditions": conditions,
-        "geographies": geographies,
-    }
 
 
 class CreateBrand(BaseModel):

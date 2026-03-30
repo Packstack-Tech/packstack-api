@@ -5,10 +5,9 @@ import uuid as uuid_module
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
-from typing import List
 from sqlalchemy.orm import joinedload
 
-from models.base import User, Trip, TripGeography, TripCondition, Pack, PackItem
+from models.base import User, Trip, Pack, PackItem
 from utils.auth import authenticate
 from utils.utils import clone_model
 
@@ -114,40 +113,13 @@ class TripType(BaseModel):
     published: bool = None
     removed: bool = None
 
-    condition_ids: List[int] = None
-    geography_ids: List[int] = None
-
 
 @route.post("", status_code=201)
 def create(payload: TripType, user: User = Depends(authenticate)):
-    trip = payload.dict(exclude_none=True)
-    condition_ids = trip.pop('condition_ids', None)
-    geography_ids = trip.pop('geography_ids', None)
-    new_trip = Trip(user_id=user.id, **trip)
+    new_trip = Trip(user_id=user.id, **payload.dict(exclude_none=True))
 
     try:
         db.session.add(new_trip)
-        db.session.flush()
-    except Exception:
-        raise HTTPException(400, "Unable to create trip.")
-
-    if condition_ids:
-        try:
-            conditions = [dict(trip_id=new_trip.id, condition_id=id)
-                          for id in condition_ids]
-            db.session.bulk_insert_mappings(TripCondition, conditions)
-        except Exception:
-            logger.exception("Failed to insert trip conditions")
-
-    if geography_ids:
-        try:
-            geographies = [dict(trip_id=new_trip.id, geography_id=id)
-                           for id in geography_ids]
-            db.session.bulk_insert_mappings(TripGeography, geographies)
-        except Exception:
-            logger.exception("Failed to insert trip geographies")
-
-    try:
         db.session.commit()
         db.session.refresh(new_trip)
     except Exception:
@@ -169,8 +141,6 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
         raise HTTPException(404, "Trip not found.")
 
     fields = payload.dict(exclude_none=True)
-    condition_ids = fields.pop('condition_ids', None)
-    geography_ids = fields.pop('geography_ids', None)
 
     try:
         for key, value in fields.items():
@@ -180,30 +150,6 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
         db.session.refresh(trip)
     except Exception:
         raise HTTPException(400, "An error occurred while updating trip.")
-
-    if condition_ids is not None:
-        db.session.query(TripCondition).filter_by(trip_id=trip.id).delete()
-        try:
-            conditions = [dict(trip_id=trip.id, condition_id=id)
-                          for id in condition_ids]
-            db.session.bulk_insert_mappings(TripCondition, conditions)
-        except Exception:
-            logger.exception("Failed to update trip conditions")
-
-    if geography_ids is not None:
-        db.session.query(TripGeography).filter_by(trip_id=trip.id).delete()
-        try:
-            geographies = [dict(trip_id=trip.id, geography_id=id)
-                           for id in geography_ids]
-            db.session.bulk_insert_mappings(TripGeography, geographies)
-        except Exception:
-            logger.exception("Failed to update trip geographies")
-
-    try:
-        db.session.commit()
-        db.session.refresh(trip)
-    except Exception:
-        logger.exception("Failed to commit trip update")
 
     return trip
 
