@@ -225,7 +225,7 @@ def bulk_restore(item_ids: BulkItemIds, user: User = Depends(authenticate)):
 @route.post("/import/lighterpack", status_code=201)
 async def import_lighterpack_items(file: UploadFile = File(...), user: User = Depends(authenticate)):
     contents = await file.read()
-    decoded = contents.decode()
+    decoded = contents.decode("utf-8", errors="replace")
     buffer = StringIO(decoded)
     csvReader = csv.DictReader(buffer)
 
@@ -310,7 +310,7 @@ async def import_lighterpack_items(file: UploadFile = File(...), user: User = De
 @route.post("/import/csv", status_code=201)
 async def import_items(file: UploadFile = File(...), user: User = Depends(authenticate)):
     contents = await file.read()
-    decoded = contents.decode()
+    decoded = contents.decode("utf-8", errors="replace")
     buffer = StringIO(decoded)
     csvReader = csv.DictReader(buffer)
 
