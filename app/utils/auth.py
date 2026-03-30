@@ -1,4 +1,5 @@
 import jwt
+import sentry_sdk
 
 from fastapi import Header, HTTPException, Request, Response
 from fastapi_sqlalchemy import db
@@ -29,6 +30,8 @@ def authenticate(*, request: Request, Authorization: str = Header(None)):
         id=decoded_token['user_id']).first()
     if not user:
         raise HTTPException(status_code=401, detail="Account does not exist.")
+
+    sentry_sdk.set_user({"id": str(user.id), "email": user.email, "username": user.username})
 
     return user
 
