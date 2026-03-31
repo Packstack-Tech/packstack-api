@@ -238,9 +238,11 @@ def toggle_publish(trip_id: int, user: User = Depends(authenticate)):
 
 
 @route.get("/{trip_id}")
-def fetch_one(trip_id: int):
+def fetch_one(trip_id: int, user: User = Depends(authenticate)):
     trip = db.session.query(Trip).options(
-        joinedload(Trip.user)).filter_by(id=trip_id).first()
+        joinedload(Trip.user)).filter_by(id=trip_id, user_id=user.id).first()
+    if not trip:
+        raise HTTPException(404, "Trip not found.")
     return trip
 
 

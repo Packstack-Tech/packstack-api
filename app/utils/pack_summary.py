@@ -57,3 +57,39 @@ def serialize_pack(pack):
         "items": pack.items,
         **summary,
     }
+
+
+def _serialize_item_public(item):
+    return {
+        "id": item.id,
+        "name": item.name,
+        "weight": float(item.weight) if item.weight else None,
+        "unit": item.unit,
+        "calories": float(item.calories) if item.calories else None,
+        "consumable": item.consumable,
+        "notes": item.notes,
+        "product_url": item.product_url,
+        "category_id": item.category_id,
+        "category": item.category,
+        "brand": item.brand,
+        "product": item.product,
+        "product_variant": item.product_variant,
+    }
+
+
+def serialize_pack_public(pack):
+    """Trimmed serialization for the public pack page. No weight summaries."""
+    return {
+        "id": pack.id,
+        "title": pack.title,
+        "items": [
+            {
+                "item_id": pi.item_id,
+                "quantity": float(pi.quantity) if pi.quantity else 1,
+                "worn": pi.worn,
+                "sort_order": float(pi.sort_order) if pi.sort_order else 0,
+                "item": _serialize_item_public(pi.item),
+            }
+            for pi in pack.items
+        ],
+    }

@@ -7,7 +7,7 @@ from typing import List
 
 from models.base import User, Pack, PackItem, Trip
 from utils.auth import authenticate
-from utils.pack_summary import serialize_pack
+from utils.pack_summary import serialize_pack, serialize_pack_public
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +21,25 @@ def get_user_packs(user: User = Depends(authenticate), limit: int = 100, offset:
     return user_packs
 
 
+@route.get("/trip/{trip_id}/public")
+def get_trip_packs_public(trip_id: int):
+    trip_packs = db.session.query(Pack).filter_by(trip_id=trip_id).all()
+    return [serialize_pack_public(p) for p in trip_packs]
+
+
 @route.get("/trip/{trip_id}")
-def get_trip_packs(trip_id: int):
+def get_trip_packs(trip_id: int, user: User = Depends(authenticate)):
+    trip = db.session.query(Trip).filter_by(id=trip_id, user_id=user.id).first()
+    if not trip:
+        raise HTTPException(404, "Trip not found.")
+
     trip_packs = db.session.query(Pack).filter_by(trip_id=trip_id).all()
     return [serialize_pack(p) for p in trip_packs]
 
 
 @route.get("/{id}")
-def get_pack_by_id(id: int):
-    pack = db.session.query(Pack).filter_by(id=id).first()
+def get_pack_by_id(id: int, user: User = Depends(authenticate)):
+    pack = db.session.query(Pack).filter_by(id=id, user_id=user.id).first()
     if not pack:
         raise HTTPException(404, "Pack does not exist.")
     return serialize_pack(pack)
