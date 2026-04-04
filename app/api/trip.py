@@ -162,7 +162,7 @@ def clone(trip_id: int, user: User = Depends(authenticate)):
     if not trip:
         raise HTTPException(404, "Trip not found.")
 
-    cloned_trip_data = clone_model(trip, ['title', 'location', 'created_at'])
+    cloned_trip_data = clone_model(trip, ['title', 'location', 'created_at', 'uuid'])
     cloned_trip = Trip(
         **cloned_trip_data,
         title=f"{trip.title} (Copy)",
