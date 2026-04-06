@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import joinedload
 
 from models.base import User, Trip, Pack, PackItem
+from tasks.enrich_trip import enrich_trip
 from utils.auth import authenticate
 from utils.utils import clone_model
 
@@ -108,7 +109,11 @@ class TripType(BaseModel):
     end_date: str = None
     temp_min: float = None
     temp_max: float = None
+    temp_category: str = None
     distance: float = None
+    daily_elevation_gain: float = None
+    terrain: str = None
+    pace: str = None
     notes: str = None
     published: bool = None
     removed: bool = None
@@ -125,6 +130,12 @@ def create(payload: TripType, user: User = Depends(authenticate)):
     except Exception:
         raise HTTPException(400, "Unable to create trip.")
 
+    if payload.location and payload.location.strip():
+        new_trip.enrich_status = "pending"
+        db.session.commit()
+        db.session.refresh(new_trip)
+        enrich_trip.delay(new_trip.id)
+
     return new_trip
 
 
@@ -140,16 +151,30 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
     if not trip:
         raise HTTPException(404, "Trip not found.")
 
+    old_location = trip.location
+    old_start_date = str(trip.start_date) if trip.start_date else None
+    old_end_date = str(trip.end_date) if trip.end_date else None
     fields = payload.dict(exclude_none=True)
 
     try:
         for key, value in fields.items():
             setattr(trip, key, value)
 
+        location_changed = payload.location and payload.location != old_location
+        dates_changed = (
+            (payload.start_date and payload.start_date != old_start_date) or
+            (payload.end_date and payload.end_date != old_end_date)
+        )
+        if trip.location and (location_changed or dates_changed):
+            trip.enrich_status = "pending"
+
         db.session.commit()
         db.session.refresh(trip)
     except Exception:
         raise HTTPException(400, "An error occurred while updating trip.")
+
+    if trip.enrich_status == "pending":
+        enrich_trip.delay(trip.id)
 
     return trip
 
