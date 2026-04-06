@@ -16,9 +16,9 @@ ENGINE_KWARGS = dict(
 
 engine = create_engine(DATABASE_URL, **ENGINE_KWARGS)
 
-if DEVELOPMENT:
-    from models.base import Base
-    Base.metadata.create_all(engine)
+# if DEVELOPMENT:
+from models.base import Base
+Base.metadata.create_all(engine)
 
 if not DEVELOPMENT:
     sentry_sdk.init(
