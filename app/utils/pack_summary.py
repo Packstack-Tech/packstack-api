@@ -53,6 +53,7 @@ def serialize_pack(pack):
         "id": pack.id,
         "user_id": pack.user_id,
         "trip_id": pack.trip_id,
+        "hiker_profile_id": pack.hiker_profile_id,
         "title": pack.title,
         "items": pack.items,
         **summary,
