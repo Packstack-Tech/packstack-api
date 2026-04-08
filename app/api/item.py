@@ -175,7 +175,7 @@ def fetch_grouped(user: User = Depends(authenticate)):
         groups[cat_key]["items"].append(item)
 
     for group in groups.values():
-        group["items"].sort(key=lambda i: i.sort_order or 0)
+        group["items"].sort(key=lambda i: (i.sort_order or 0, i.created_at))
 
     return sorted(
         groups.values(),
