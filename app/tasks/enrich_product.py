@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -117,17 +118,74 @@ CATEGORIES = [
     "Tools", "First Aid", "Safety", "Camera", "Climbing",
 ]
 
+SUBCATEGORIES = {
+    "Clothing": [
+        "Base Layers", "Mid Layers", "Insulation", "Rain Gear",
+        "Wind Gear", "Socks", "Underwear", "Headwear", "Gloves",
+        "Pants & Shorts", "Shirts & Tops",
+    ],
+    "Cookware": [
+        "Stoves", "Fuel", "Pots & Pans", "Utensils",
+        "Drinkware", "Cleaning", "Coffee/Tea",
+    ],
+    "Sleep System": [
+        "Sleeping Bags", "Quilts", "Sleeping Pads", "Pillows", "Liners", "Bivys",
+    ],
+    "Electronics": [
+        "Power & Cables", "Lighting", "Navigation/Comm", "Batteries",
+        "Solar", "Wearables", "Audio",
+    ],
+    "Pack": [
+        "Main Pack", "Daypacks", "Protection", "Organization", "Add-ons",
+    ],
+    "Shelter": [
+        "Tents", "Hammocks", "Tarps", "Hardware", "Structure",
+    ],
+    "Toiletries": [
+        "Hygiene", "Bathroom", "Sun & Bug", "Personal Care",
+    ],
+    "Water System": [
+        "Filtration", "Purification", "Bottles", "Hydration", "Storage",
+    ],
+    "Food": [
+        "Meals", "Snacks", "Beverages", "Storage", "Hanging",
+    ],
+    "Footware": [
+        "Primary", "Camp Shoes", "Gaiters", "Traction",
+    ],
+    "Tools": [
+        "Knives", "Repair", "Trekking Poles", "Processing",
+    ],
+    "First Aid": [
+        "Bandages", "Medication", "Blister Care", "Ointments",
+    ],
+    "Safety": [
+        "Survival", "Fire", "Protection",
+    ],
+    "Camera": [
+        "Body & Lens", "Support", "Media", "Power",
+    ],
+    "Climbing": [
+        "Personal", "Hardware", "Protection", "Soft Goods",
+    ],
+}
+
+_subcategory_block = json.dumps(SUBCATEGORIES, indent=2)
+
 SYSTEM_PROMPT = (
     "You are a backpacking and outdoor gear product database. You have expert knowledge "
     "of outdoor gear brands, product lines, and specifications. When given a brand and product name "
     "(which may be misspelled, abbreviated, or include variant info in the name), you research and "
     "return the canonical product information.\n\n"
-    "You have access to web search. Use it to find the manufacturer's official product page. "
-    'Prefer searching the manufacturer\'s site directly (e.g. "site:nemoequipment.com Tensor Insulated"). '
-    "From the product page, extract:\n"
-    "- The official product URL\n"
+    "You have access to web search. Use it to find product pages from both the manufacturer's website "
+    "and major retail sites (REI, Amazon, etc.), since many manufacturers do not sell directly. "
+    "Try searching the manufacturer's site first "
+    '(e.g. "site:nemoequipment.com Tensor Insulated"), then also search retail sites '
+    '(e.g. "Nemo Tensor Insulated site:rei.com" or the product name on Amazon). '
+    "From the best available product page(s), extract:\n"
+    "- A product URL (prefer the manufacturer's page if available, otherwise use a retail page)\n"
     "- A product image URL (the main product photo, not a lifestyle/hero image)\n"
-    "- The manufacturer's listed weight and any other specs (R-value, volume, packed size, temperature rating, etc.)\n\n"
+    "- The listed weight and any other specs (R-value, volume, packed size, temperature rating, etc.)\n\n"
     "IMPORTANT: A variant is a meaningful product option like size (S/M/L/Regular/Long), color, gender, "
     "or volume capacity. Weight measurements (e.g. \"690g\", \"14oz\", \"2lb\"), dimensions, or other specs "
     "that appear in the variant field are NOT real variants. If the provided variant is just a weight or "
@@ -135,13 +193,20 @@ SYSTEM_PROMPT = (
     "additional_specs instead.\n\n"
     "If the input is not a real, identifiable outdoor/backpacking product (e.g. \"small bag\", \"misc item\", "
     "random text), mark it as invalid.\n\n"
-    f"When assigning a category, you MUST use one of these exact values: {', '.join(CATEGORIES)}."
+    f"When assigning a category, you MUST use one of these exact values: {', '.join(CATEGORIES)}.\n\n"
+    "After assigning a category, also assign a subcategory. The valid subcategories for each category are:\n"
+    f"{_subcategory_block}\n"
+    "You MUST pick a subcategory from the list for the chosen category. If the product does not fit any "
+    "subcategory, or the category is \"Miscellaneous\", set subcategory to null.\n\n"
+    "FOOD ITEMS: If the category is \"Food\", look up the calories per serving (kcal) from the product "
+    "page, nutrition label, or retailer listing. Report this value as kcal. For non-food items, set kcal "
+    "to null."
 )
 
 WEB_SEARCH_TOOL = {
     "type": "web_search_20250305",
     "name": "web_search",
-    "max_uses": 3,
+    "max_uses": 5,
 }
 
 TOOL_SCHEMA = {
@@ -172,11 +237,14 @@ TOOL_SCHEMA = {
             },
             "product_url": {
                 "type": ["string", "null"],
-                "description": "Official manufacturer product page URL. Null if unknown.",
+                "description": (
+                    "Product page URL (prefer manufacturer's page; use a retail page "
+                    "if manufacturer doesn't sell direct). Null if unknown."
+                ),
             },
             "image_url": {
                 "type": ["string", "null"],
-                "description": "URL of the main product photo from the manufacturer's site. Null if not found.",
+                "description": "URL of the main product photo. Null if not found.",
             },
             "description": {
                 "type": ["string", "null"],
@@ -186,6 +254,20 @@ TOOL_SCHEMA = {
                 "type": ["string", "null"],
                 "enum": CATEGORIES + [None],
                 "description": "Gear category. Must be one of the predefined values.",
+            },
+            "subcategory": {
+                "type": ["string", "null"],
+                "description": (
+                    "Subcategory within the assigned category. Must be one of the valid "
+                    "subcategories for the chosen category, or null."
+                ),
+            },
+            "kcal": {
+                "type": ["integer", "null"],
+                "description": (
+                    "Calories per serving for Food category items. Null for non-food "
+                    "items or if unknown."
+                ),
             },
             "additional_specs": {
                 "type": ["object", "null"],
@@ -489,7 +571,9 @@ def enrich_product(self, brand_id: int, product_id: int, product_variant_id: int
             image_url=result.get("image_url"),
             description=result.get("description"),
             category_suggestion=result.get("category"),
+            subcategory=result.get("subcategory"),
             additional_specs=result.get("additional_specs"),
+            kcal=result.get("kcal"),
             brand_id=brand.id,
             product_id=product.id,
             product_variant_id=variant.id if variant else None,

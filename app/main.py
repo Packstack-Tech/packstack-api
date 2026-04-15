@@ -5,7 +5,7 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 from sqlalchemy import create_engine
 
 from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
-from api import user, resources, item, trip, category, pack, kit, hiker_profile
+from api import user, resources, item, trip, category, pack, kit, hiker_profile, webhook
 
 ENGINE_KWARGS = dict(
     pool_size=5,
@@ -99,6 +99,14 @@ app.include_router(
     hiker_profile.route,
     prefix="/hiker-profile",
     tags=["hiker-profile"],
+    responses={404: {"description": "Not found"}}
+)
+
+
+app.include_router(
+    webhook.route,
+    prefix="/webhook",
+    tags=["webhook"],
     responses={404: {"description": "Not found"}}
 )
 

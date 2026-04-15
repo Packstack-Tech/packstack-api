@@ -19,4 +19,4 @@ uvicorn[standard]
 sentry-sdk
 celery[redis]
 anthropic
-git+https://github.com/Packstack-Tech/models.git@v2.0.1#egg=models
+git+https://github.com/Packstack-Tech/models.git@v2.0.2#egg=models

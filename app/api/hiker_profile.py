@@ -50,6 +50,10 @@ def get_profile(profile_id: int, user: User = Depends(authenticate)):
 @route.post("", status_code=201)
 def create_profile(payload: HikerProfileType, user: User = Depends(authenticate)):
     existing_count = db.session.query(HikerProfile).filter_by(user_id=user.id).count()
+
+    if not user.is_subscribed and existing_count >= 1:
+        raise HTTPException(403, "Upgrade to Full Access to create multiple hiker profiles.")
+
     is_default = True if existing_count == 0 else payload.is_default
 
     if is_default:
