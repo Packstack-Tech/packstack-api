@@ -120,44 +120,44 @@ CATEGORIES = [
 
 SUBCATEGORIES = {
     "Clothing": [
-        "Base Layers", "Mid Layers", "Insulation", "Rain Gear",
-        "Wind Gear", "Socks", "Underwear", "Headwear", "Gloves",
-        "Pants & Shorts", "Shirts & Tops",
+        "Base Layer", "Mid Layer", "Insulation", "Rain Gear",
+        "Wind Gear", "Sock", "Underwear", "Headwear", "Glove",
+        "Pant & Short", "Shirt & Top",
     ],
     "Cookware": [
-        "Stoves", "Fuel", "Pots & Pans", "Utensils",
+        "Stove", "Fuel", "Pot & Pan", "Utensil",
         "Drinkware", "Cleaning", "Coffee/Tea",
     ],
     "Sleep System": [
-        "Sleeping Bags", "Quilts", "Sleeping Pads", "Pillows", "Liners", "Bivys",
+        "Sleeping Bag", "Quilt", "Sleeping Pad", "Pillow", "Liner", "Bivy",
     ],
     "Electronics": [
-        "Power & Cables", "Lighting", "Navigation/Comm", "Batteries",
-        "Solar", "Wearables", "Audio",
+        "Power & Cable", "Lighting", "Navigation/Comm", "Battery",
+        "Solar", "Wearable", "Audio",
     ],
     "Pack": [
-        "Main Pack", "Daypacks", "Protection", "Organization", "Add-ons",
+        "Main Pack", "Daypack", "Protection", "Organization", "Add-on",
     ],
     "Shelter": [
-        "Tents", "Hammocks", "Tarps", "Hardware", "Structure",
+        "Tent", "Hammock", "Tarp", "Hardware", "Structure",
     ],
     "Toiletries": [
         "Hygiene", "Bathroom", "Sun & Bug", "Personal Care",
     ],
     "Water System": [
-        "Filtration", "Purification", "Bottles", "Hydration", "Storage",
+        "Filtration", "Purification", "Bottle", "Hydration", "Storage",
     ],
     "Food": [
-        "Meals", "Snacks", "Beverages", "Storage", "Hanging",
+        "Meal", "Snack", "Beverage", "Storage", "Hanging",
     ],
     "Footware": [
-        "Primary", "Camp Shoes", "Gaiters", "Traction",
+        "Primary", "Camp Shoe", "Gaiter", "Traction",
     ],
     "Tools": [
-        "Knives", "Repair", "Trekking Poles", "Processing",
+        "Knife", "Repair", "Trekking Pole", "Processing",
     ],
     "First Aid": [
-        "Bandages", "Medication", "Blister Care", "Ointments",
+        "Bandage", "Medication", "Blister Care", "Ointment",
     ],
     "Safety": [
         "Survival", "Fire", "Protection",
@@ -166,7 +166,7 @@ SUBCATEGORIES = {
         "Body & Lens", "Support", "Media", "Power",
     ],
     "Climbing": [
-        "Personal", "Hardware", "Protection", "Soft Goods",
+        "Personal", "Hardware", "Protection", "Soft Good",
     ],
 }
 
