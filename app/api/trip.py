@@ -130,7 +130,7 @@ def create(payload: TripType, user: User = Depends(authenticate)):
     except Exception:
         raise HTTPException(400, "Unable to create trip.")
 
-    if payload.location and payload.location.strip() and user.is_subscribed:
+    if payload.location and payload.location.strip():
         new_trip.enrich_status = "pending"
         db.session.commit()
         db.session.refresh(new_trip)
@@ -165,7 +165,7 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
             (payload.start_date and payload.start_date != old_start_date) or
             (payload.end_date and payload.end_date != old_end_date)
         )
-        if trip.location and (location_changed or dates_changed) and user.is_subscribed:
+        if trip.location and (location_changed or dates_changed):
             trip.enrich_status = "pending"
 
         db.session.commit()
