@@ -1,6 +1,7 @@
 import base64
 import logging
 import os
+import re
 import time
 
 import anthropic
@@ -148,7 +149,9 @@ _VISION_SYSTEM = (
     "- Have a clean, white, or neutral background\n"
     "- Show the complete product, not a close-up of a detail\n"
     "- Match the specific product described (correct brand, model, color if known)\n\n"
-    "If NONE of the images are a good match for the product, respond with 0."
+    "IMPORTANT: Your entire response must be a single integer and nothing else. "
+    "No explanation, no reasoning, no text. Just the number.\n"
+    "If NONE of the images are a good match, respond with: 0"
 )
 
 
@@ -222,8 +225,13 @@ def _select_best_image(
     try:
         choice = int(reply)
     except ValueError:
-        logger.warning("Vision model returned non-numeric response: %s", reply)
-        return None
+        match = re.search(r'\b([0-5])\b', reply)
+        if match:
+            choice = int(match.group(1))
+            logger.info("Extracted choice %d from verbose response", choice)
+        else:
+            logger.warning("Vision model returned non-numeric response: %s", reply)
+            return None
 
     if choice == 0:
         return None
@@ -291,7 +299,7 @@ def find_product_image(self, catalog_product_id: int):
 
         if image_url:
             entry.image_url = image_url
-            session.flush()
+            session.commit()
             logger.info("Set image_url for %s: %s", label, image_url)
         else:
             logger.info("No suitable image found for %s", label)
