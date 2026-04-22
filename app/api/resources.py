@@ -1,5 +1,9 @@
 import csv
 import logging
+import re
+from collections import defaultdict
+from itertools import groupby
+from operator import attrgetter
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,6 +16,7 @@ from sqlalchemy.orm import joinedload
 from models.base import Brand, CatalogProduct, Product, User, Category, ProductVariant
 from utils.auth import authenticate
 from utils.consts import DEVELOPMENT
+from utils.weight import convert_weight
 from seed.categories import default_categories
 
 logger = logging.getLogger(__name__)
@@ -156,6 +161,131 @@ def catalog_search(
         "brand_id": r.brand_id,
         "brand_name": r.brand_name,
     } for r in rows]
+
+
+def _slugify(name: str) -> str:
+    s = name.lower()
+    s = re.sub(r'[&/]', '', s)
+    s = re.sub(r'[^a-z0-9]+', '-', s)
+    return s.strip('-')
+
+
+def _weight_to_grams(weight, weight_unit) -> float | None:
+    if weight is None or weight_unit is None:
+        return None
+    try:
+        return convert_weight(weight, weight_unit, "g")
+    except Exception:
+        return None
+
+
+@route.get("/catalog/categories")
+def catalog_categories():
+    rows = (
+        db.session.query(
+            CatalogProduct.category_suggestion,
+            CatalogProduct.subcategory,
+            func.count(CatalogProduct.id).label("cnt"),
+        )
+        .filter(
+            CatalogProduct.status == "approved",
+            CatalogProduct.subcategory.isnot(None),
+            CatalogProduct.category_suggestion.isnot(None),
+        )
+        .group_by(CatalogProduct.category_suggestion, CatalogProduct.subcategory)
+        .order_by(CatalogProduct.category_suggestion, CatalogProduct.subcategory)
+        .all()
+    )
+
+    grouped: dict[str, list] = defaultdict(list)
+    for cat, sub, cnt in rows:
+        grouped[cat].append({
+            "name": sub,
+            "slug": _slugify(sub),
+            "product_count": cnt,
+        })
+
+    return [
+        {"category": cat, "subcategories": subs}
+        for cat, subs in sorted(grouped.items())
+    ]
+
+
+@route.get("/catalog/browse/{slug}")
+def catalog_browse(slug: str):
+    # Build slug -> subcategory name lookup from live data
+    distinct = (
+        db.session.query(CatalogProduct.subcategory)
+        .filter(
+            CatalogProduct.status == "approved",
+            CatalogProduct.subcategory.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    slug_map = {_slugify(r[0]): r[0] for r in distinct}
+    subcategory_name = slug_map.get(slug)
+    if not subcategory_name:
+        raise HTTPException(404, "Subcategory not found")
+
+    entries = (
+        db.session.query(CatalogProduct)
+        .filter(
+            CatalogProduct.status == "approved",
+            CatalogProduct.subcategory == subcategory_name,
+        )
+        .order_by(CatalogProduct.brand_name, CatalogProduct.product_name)
+        .all()
+    )
+
+    category_name = entries[0].category_suggestion if entries else None
+
+    products = []
+    key_fn = attrgetter("brand_name", "product_name")
+    for (brand, product), group_iter in groupby(entries, key=key_fn):
+        variants_raw = list(group_iter)
+        variants = []
+        lightest_g: float | None = None
+        product_url: str | None = None
+
+        for v in variants_raw:
+            w_g = _weight_to_grams(v.weight, v.weight_unit)
+            if w_g is not None and (lightest_g is None or w_g < lightest_g):
+                lightest_g = w_g
+            if not product_url and v.product_url:
+                product_url = v.product_url
+
+            variants.append({
+                "id": v.id,
+                "variant_name": v.variant_name,
+                "display_name": v.display_name,
+                "weight": float(v.weight) if v.weight is not None else None,
+                "weight_unit": v.weight_unit,
+                "image_url": v.image_url,
+                "description": v.description,
+                "additional_specs": v.additional_specs,
+            })
+
+        products.append({
+            "brand_name": brand,
+            "product_name": product,
+            "product_url": product_url,
+            "lightest_weight_g": round(lightest_g, 2) if lightest_g is not None else None,
+            "variants": variants,
+        })
+
+    products.sort(key=lambda p: (
+        p["lightest_weight_g"] is None,
+        p["lightest_weight_g"] or 0,
+    ))
+
+    return {
+        "subcategory": subcategory_name,
+        "category": category_name,
+        "slug": slug,
+        "product_count": len(products),
+        "products": products,
+    }
 
 
 @route.get("/brand/search/{query}")
