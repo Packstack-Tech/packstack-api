@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from models.base import Brand, Product, ProductVariant, Item, CatalogProduct
 from celery_app import celery_app
+from tasks.catalog_image import find_product_image
 from utils.consts import WORKER_DATABASE_URL
 
 logger = logging.getLogger(__name__)
@@ -184,7 +185,6 @@ SYSTEM_PROMPT = (
     '(e.g. "Nemo Tensor Insulated site:rei.com" or the product name on Amazon). '
     "From the best available product page(s), extract:\n"
     "- A product URL (prefer the manufacturer's page if available, otherwise use a retail page)\n"
-    "- A product image URL (the main product photo, not a lifestyle/hero image)\n"
     "- The listed weight and any other specs (R-value, volume, packed size, temperature rating, etc.)\n\n"
     "IMPORTANT: A variant is a meaningful product option like size (S/M/L/Regular/Long), color, gender, "
     "or volume capacity. Weight measurements (e.g. \"690g\", \"14oz\", \"2lb\"), dimensions, or other specs "
@@ -241,10 +241,6 @@ TOOL_SCHEMA = {
                     "Product page URL (prefer manufacturer's page; use a retail page "
                     "if manufacturer doesn't sell direct). Null if unknown."
                 ),
-            },
-            "image_url": {
-                "type": ["string", "null"],
-                "description": "URL of the main product photo. Null if not found.",
             },
             "description": {
                 "type": ["string", "null"],
@@ -568,7 +564,6 @@ def enrich_product(self, brand_id: int, product_id: int, product_variant_id: int
             weight=weight_grams,
             weight_unit="g" if weight_grams else None,
             product_url=result.get("product_url"),
-            image_url=result.get("image_url"),
             description=result.get("description"),
             category_suggestion=result.get("category"),
             subcategory=result.get("subcategory"),
@@ -584,3 +579,5 @@ def enrich_product(self, brand_id: int, product_id: int, product_variant_id: int
         session.add(entry)
         session.commit()
         logger.info("Inserted %s (confidence=%.3f)", display_name, confidence)
+
+        find_product_image.delay(entry.id)
