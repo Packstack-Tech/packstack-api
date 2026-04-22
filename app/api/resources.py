@@ -205,10 +205,11 @@ def catalog_categories():
             "product_count": cnt,
         })
 
-    return [
-        {"category": cat, "subcategories": subs}
-        for cat, subs in sorted(grouped.items())
-    ]
+    return sorted(
+        [{"category": cat, "subcategories": subs} for cat, subs in grouped.items()],
+        key=lambda g: sum(s["product_count"] for s in g["subcategories"]),
+        reverse=True,
+    )
 
 
 @route.get("/catalog/browse/{slug}")
