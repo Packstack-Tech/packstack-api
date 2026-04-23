@@ -30,7 +30,27 @@ _DOWNLOAD_HEADERS = {
     )
 }
 
-_ALLOWED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+_IMGTYPE_TO_MEDIA = {
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
+
+
+def _detect_media_type(data: bytes) -> str | None:
+    """Detect the actual media type from file magic bytes."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    import imghdr
+    kind = imghdr.what(None, h=data)
+    return _IMGTYPE_TO_MEDIA.get(kind) if kind else None
 
 
 # ---------------------------------------------------------------------------
@@ -114,23 +134,14 @@ def _download_images(urls: list[str]) -> list[tuple[str, bytes, str]]:
             if resp.status_code != 200:
                 continue
 
-            content_type = resp.headers.get("Content-Type", "").split(";")[0].strip()
-            if content_type not in _ALLOWED_MEDIA_TYPES:
-                if url.lower().endswith((".jpg", ".jpeg")):
-                    content_type = "image/jpeg"
-                elif url.lower().endswith(".png"):
-                    content_type = "image/png"
-                elif url.lower().endswith(".webp"):
-                    content_type = "image/webp"
-                elif url.lower().endswith(".gif"):
-                    content_type = "image/gif"
-                else:
-                    continue
-
             if len(resp.content) < 1000:
                 continue
 
-            results.append((url, resp.content, content_type))
+            media_type = _detect_media_type(resp.content)
+            if not media_type:
+                continue
+
+            results.append((url, resp.content, media_type))
         except requests.RequestException:
             continue
     return results
