@@ -298,6 +298,8 @@ def find_product_image(self, catalog_product_id: int):
             raise self.retry(exc=exc)
 
         if image_url:
+            if image_url.startswith("http://"):
+                image_url = "https://" + image_url[7:]
             entry.image_url = image_url
             session.commit()
             logger.info("Set image_url for %s: %s", label, image_url)
