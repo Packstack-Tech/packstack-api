@@ -248,6 +248,7 @@ def catalog_browse(slug: str):
         variants = []
         lightest_g: float | None = None
         product_url: str | None = None
+        catalog_url_slug: str | None = None
 
         for v in variants_raw:
             w_g = _weight_to_grams(v.weight, v.weight_unit)
@@ -255,6 +256,8 @@ def catalog_browse(slug: str):
                 lightest_g = w_g
             if not product_url and v.product_url:
                 product_url = v.product_url
+            if not catalog_url_slug and v.catalog_url_slug:
+                catalog_url_slug = v.catalog_url_slug
 
             variants.append({
                 "id": v.id,
@@ -271,6 +274,7 @@ def catalog_browse(slug: str):
             "brand_name": brand,
             "product_name": product,
             "product_url": product_url,
+            "catalog_url_slug": catalog_url_slug,
             "lightest_weight_g": round(lightest_g, 2) if lightest_g is not None else None,
             "variants": variants,
         })
