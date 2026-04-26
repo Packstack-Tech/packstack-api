@@ -21,6 +21,7 @@ from models.base import (
     Item, Category, ItemCategory, Kit, KitItem, Pack, PackItem,
     Post, Trip, Image, TripCondition, TripGeography,
     Comment, Follow, LikePost, LikeTrip, LikeComment, LikeImage, Reported,
+    HikerProfile,
 )
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
 from cryptography.hazmat.primitives import serialization
@@ -593,6 +594,9 @@ def delete_account(response: Response, user: User = Depends(authenticate)):
         db.session.query(Item).filter_by(user_id=user_id).delete(synchronize_session=False)
         db.session.query(ItemCategory).filter_by(user_id=user_id).delete(synchronize_session=False)
         db.session.query(Category).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Hiker profiles
+        db.session.query(HikerProfile).filter_by(user_id=user_id).delete(synchronize_session=False)
 
         # Auth artifacts
         db.session.query(EmailVerification).filter_by(user_id=user_id).delete(synchronize_session=False)
