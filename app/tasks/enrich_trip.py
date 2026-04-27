@@ -143,6 +143,7 @@ def _build_user_prompt(trip: Trip, unit_distance: str, unit_temperature: str) ->
         "temp_min": f"Temperature min ({temp_label})",
         "temp_max": f"Temperature max ({temp_label})",
         "temp_category": "Temperature category",
+        "trail_system": "Trail system",
     }
 
     for field in ENRICHABLE_FIELDS:
