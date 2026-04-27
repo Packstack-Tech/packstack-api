@@ -37,7 +37,14 @@ SYSTEM_PROMPT = (
     "Temperature category:\n"
     "- cold: Below 32°F / 0°C\n"
     "- moderate: 32-85°F / 0-29°C\n"
-    "- hot: Above 85°F / 29°C"
+    "- hot: Above 85°F / 29°C\n\n"
+    "Trail systems:\n"
+    "If the trail is a section of (or the entirety of) a major named trail system, return its "
+    "standard abbreviation. Recognized systems include: PCT, AT, CDT, GR20, SWCP, TMB, TRT, "
+    "JMT, W-Trek, Kungsleden, Te Araroa, Camino, GR10, GR11, Lycian Way, Bibbulmun, "
+    "Overland Track, and similar well-known long-distance routes.\n"
+    "Only set trail_system if you are confident the location is part of that system. "
+    "If uncertain, return null."
 )
 
 WEB_SEARCH_TOOL = {
@@ -87,6 +94,10 @@ TOOL_SCHEMA = {
                 "enum": ["cold", "moderate", "hot", None],
                 "description": "Overall temperature category for the trip. Null if dates not provided.",
             },
+            "trail_system": {
+                "type": ["string", "null"],
+                "description": "Abbreviation of the major trail system this trail belongs to (e.g. PCT, AT, CDT, GR20). Null if not part of a recognized system or uncertain.",
+            },
             "notes": {
                 "type": "string",
                 "description": "A concise 2-3 sentence description of the trail, its highlights, and notable conditions.",
@@ -99,7 +110,7 @@ TOOL_SCHEMA = {
 # Fields that map from AI result to Trip columns
 ENRICHABLE_FIELDS = [
     "distance", "daily_elevation_gain", "terrain", "pace",
-    "temp_min", "temp_max", "temp_category",
+    "temp_min", "temp_max", "temp_category", "trail_system",
 ]
 
 
