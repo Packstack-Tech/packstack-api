@@ -36,7 +36,6 @@ class ItemType(BaseModel):
     calories: float = None
     consumable: bool = False
     product_url: str = None
-    wishlist: bool = None
     notes: str = None
 
     acquired_date: str = None
