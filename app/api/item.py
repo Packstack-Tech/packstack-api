@@ -3,8 +3,8 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, validator
+from typing import List, Optional
 from io import StringIO
 from sqlalchemy import or_, func
 
@@ -38,14 +38,25 @@ class ItemType(BaseModel):
     product_url: str = None
     notes: str = None
 
-    acquired_date: str = None
-    acquisition_type: str = None
-    purchase_retailer: str = None
-    condition: str = None
-    status: str = None
-    retired_date: str = None
-    retired_reason: str = None
+    acquired_date: Optional[str] = None
+    acquisition_type: Optional[str] = None
+    purchase_retailer: Optional[str] = None
+    condition: Optional[str] = None
+    status: Optional[str] = None
+    retired_date: Optional[str] = None
+    retired_reason: Optional[str] = None
     replaced_by_id: int = None
+
+    @validator(
+        "acquired_date", "acquisition_type", "purchase_retailer",
+        "condition", "status", "retired_date", "retired_reason",
+        "product_url", "notes",
+        pre=True, always=True,
+    )
+    def empty_str_to_none(cls, v):
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
 
 def _find_catalog_product(session, brand_id: int, product_id: int, product_variant_id: int | None):

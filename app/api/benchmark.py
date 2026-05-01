@@ -7,7 +7,7 @@ from typing import Optional
 
 from models.base import User, CategoryBenchmark
 from utils.auth import authenticate
-from utils.gear_lifecycle import get_all_benchmarks, DEFAULT_BENCHMARKS
+from utils.gear_lifecycle import get_all_benchmarks
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,6 @@ class BenchmarkUpdate(BaseModel):
 
 @route.put("/{category_name}")
 def upsert_benchmark(category_name: str, payload: BenchmarkUpdate, user: User = Depends(authenticate)):
-    if category_name not in DEFAULT_BENCHMARKS:
-        raise HTTPException(400, f"Unknown category: {category_name}")
-
     override = db.session.query(CategoryBenchmark).filter_by(
         user_id=user.id, category_name=category_name
     ).first()

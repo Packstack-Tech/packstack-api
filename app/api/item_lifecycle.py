@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional
 
 from models.base import User, Item, ItemLog
@@ -21,14 +21,24 @@ VALID_RETIRED_REASONS = {"worn_out", "upgraded", "lost", "sold", "gifted"}
 
 
 class LifecycleUpdate(BaseModel):
-    acquired_date: str = None
-    acquisition_type: str = None
-    purchase_retailer: str = None
-    condition: str = None
-    status: str = None
-    retired_date: str = None
-    retired_reason: str = None
+    acquired_date: Optional[str] = None
+    acquisition_type: Optional[str] = None
+    purchase_retailer: Optional[str] = None
+    condition: Optional[str] = None
+    status: Optional[str] = None
+    retired_date: Optional[str] = None
+    retired_reason: Optional[str] = None
     replaced_by_id: int = None
+
+    @validator(
+        "acquired_date", "acquisition_type", "purchase_retailer",
+        "condition", "status", "retired_date", "retired_reason",
+        pre=True, always=True,
+    )
+    def empty_str_to_none(cls, v):
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
 
 @route.put("/{item_id}/lifecycle")
@@ -152,6 +162,7 @@ def get_replacement_score(item_id: int, user: User = Depends(authenticate)):
     )
 
     benchmark = get_benchmark(db.session, user.id, category_name)
+    is_default_fallback = benchmark.pop("is_default_fallback", False)
     score = replacement_score(item.acquired_date, item.condition, benchmark)
 
     return {
@@ -159,6 +170,7 @@ def get_replacement_score(item_id: int, user: User = Depends(authenticate)):
         "score": score,
         "category": category_name,
         "benchmark": benchmark,
+        "is_default_fallback": is_default_fallback,
         "acquired_date": str(item.acquired_date) if item.acquired_date else None,
         "condition": item.condition,
     }
