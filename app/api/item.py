@@ -8,7 +8,7 @@ from typing import List
 from io import StringIO
 from sqlalchemy import or_, func
 
-from models.base import User, Item, ItemCategory, Category, Brand, Product, ProductVariant
+from models.base import User, Item, ItemCategory, Category, Brand, Product, ProductVariant, CatalogProduct
 from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
@@ -39,6 +39,28 @@ class ItemType(BaseModel):
     wishlist: bool = None
     notes: str = None
 
+    acquired_date: str = None
+    acquisition_type: str = None
+    purchase_retailer: str = None
+    condition: str = None
+    status: str = None
+    retired_date: str = None
+    retired_reason: str = None
+    replaced_by_id: int = None
+
+
+def _find_catalog_product(session, brand_id: int, product_id: int, product_variant_id: int | None):
+    q = session.query(CatalogProduct).filter(
+        CatalogProduct.brand_id == brand_id,
+        CatalogProduct.product_id == product_id,
+        CatalogProduct.status == "approved",
+    )
+    if product_variant_id:
+        q = q.filter(CatalogProduct.product_variant_id == product_variant_id)
+    else:
+        q = q.filter(CatalogProduct.product_variant_id.is_(None))
+    return q.first()
+
 
 @route.post("", status_code=201)
 def create(payload: ItemType, user: User = Depends(authenticate)):
@@ -55,6 +77,14 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     item_data.pop("category_new")
 
     new_item = Item(user_id=user.id, **item_data)
+
+    if new_item.brand_id and new_item.product_id:
+        catalog_match = _find_catalog_product(
+            db.session, new_item.brand_id, new_item.product_id,
+            new_item.product_variant_id
+        )
+        if catalog_match:
+            new_item.catalog_product_id = catalog_match.id
 
     try:
         db.session.add(new_item)

@@ -585,4 +585,19 @@ def enrich_product(self, brand_id: int, product_id: int, product_variant_id: int
         session.commit()
         logger.info("Inserted %s (confidence=%.3f)", display_name, confidence)
 
+        variant_filter = (
+            Item.product_variant_id == variant.id
+            if variant
+            else Item.product_variant_id.is_(None)
+        )
+        linked = session.query(Item).filter(
+            Item.brand_id == brand.id,
+            Item.product_id == product.id,
+            variant_filter,
+            Item.catalog_product_id.is_(None),
+        ).update({"catalog_product_id": entry.id}, synchronize_session=False)
+        if linked:
+            session.commit()
+            logger.info("Linked %d existing items to catalog product %d", linked, entry.id)
+
         find_product_image.delay(entry.id)
