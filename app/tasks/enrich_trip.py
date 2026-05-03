@@ -114,14 +114,10 @@ ENRICHABLE_FIELDS = [
 ]
 
 
-def _build_user_prompt(trip: Trip, unit_distance: str, unit_temperature: str) -> str:
-    dist_label = "miles" if unit_distance == "MI" else "kilometers"
-    elev_label = "feet" if unit_distance == "MI" else "meters"
-    temp_label = "Fahrenheit" if unit_temperature == "F" else "Celsius"
-
+def _build_user_prompt(trip: Trip) -> str:
     lines = [
         f"Trail/Location: {trip.location}",
-        f"Unit system: distance in {dist_label}, elevation in {elev_label}, temperature in {temp_label}",
+        "Unit system: distance in kilometers, elevation in meters, temperature in Celsius",
         "",
     ]
 
@@ -136,12 +132,12 @@ def _build_user_prompt(trip: Trip, unit_distance: str, unit_temperature: str) ->
     lines.append("Current field status:")
 
     field_labels = {
-        "distance": f"Distance ({dist_label})",
-        "daily_elevation_gain": f"Daily elevation gain ({elev_label})",
+        "distance": "Distance (kilometers)",
+        "daily_elevation_gain": "Daily elevation gain (meters)",
         "terrain": "Terrain type",
         "pace": "Pace",
-        "temp_min": f"Temperature min ({temp_label})",
-        "temp_max": f"Temperature max ({temp_label})",
+        "temp_min": "Temperature min (Celsius)",
+        "temp_max": "Temperature max (Celsius)",
         "temp_category": "Temperature category",
         "trail_system": "Trail system",
     }
@@ -188,13 +184,10 @@ def enrich_trip(self, trip_id: int):
         trip.enrich_status = "processing"
         session.commit()
 
-        unit_distance = user.unit_distance or "MI"
-        unit_temperature = user.unit_temperature or "F"
-
         logger.info("Enriching trip %s: %s", trip_id, trip.location)
 
         try:
-            user_prompt = _build_user_prompt(trip, unit_distance, unit_temperature)
+            user_prompt = _build_user_prompt(trip)
             response = ai_complete(
                 system=SYSTEM_PROMPT,
                 user=user_prompt,
