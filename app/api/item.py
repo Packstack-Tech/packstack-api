@@ -1,4 +1,5 @@
 import csv
+import datetime
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
@@ -8,7 +9,7 @@ from typing import List, Optional
 from io import StringIO
 from sqlalchemy import or_, func
 
-from models.base import User, Item, ItemCategory, Category, Brand, Product, ProductVariant, CatalogProduct
+from models.base import User, Item, ItemLog, ItemCategory, Category, Brand, Product, ProductVariant, CatalogProduct
 from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
@@ -139,10 +140,33 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     if not item:
         raise HTTPException(404, "Item not found.")
 
+    old_condition = item.condition
+    old_acquired_date = item.acquired_date
+
     for key, value in fields.items():
         setattr(item, key, value)
 
     try:
+        if payload.condition and payload.condition != old_condition:
+            log = ItemLog(
+                item_id=item.id,
+                user_id=user.id,
+                event_type="condition_change",
+                notes=f"Condition changed from {old_condition or 'unset'} to {payload.condition}",
+                logged_at=datetime.datetime.utcnow(),
+            )
+            db.session.add(log)
+
+        if payload.acquired_date and not old_acquired_date:
+            log = ItemLog(
+                item_id=item.id,
+                user_id=user.id,
+                event_type="acquired",
+                notes=f"Acquired on {payload.acquired_date}",
+                logged_at=datetime.datetime.utcnow(),
+            )
+            db.session.add(log)
+
         db.session.commit()
         db.session.refresh(item)
     except Exception:

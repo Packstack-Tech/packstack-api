@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 route = APIRouter(dependencies=[Depends(authenticate)])
 
-VALID_CONDITIONS = {"new", "good", "fair", "worn", "retired"}
+VALID_CONDITIONS = {"new", "good", "fair", "worn"}
 VALID_STATUSES = {"active", "wishlist", "retired", "sold", "lost"}
 VALID_ACQUISITION_TYPES = {"purchased", "gifted", "traded", "diy"}
 VALID_RETIRED_REASONS = {"worn_out", "upgraded", "lost", "sold", "gifted"}
