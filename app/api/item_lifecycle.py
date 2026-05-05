@@ -136,6 +136,34 @@ def create_log(item_id: int, payload: ItemLogCreate, user: User = Depends(authen
     return log_entry
 
 
+@route.put("/{item_id}/log/{log_id}")
+def update_log(item_id: int, log_id: int, payload: ItemLogCreate, user: User = Depends(authenticate)):
+    log_entry = db.session.query(ItemLog).filter_by(
+        id=log_id, item_id=item_id
+    ).first()
+    if not log_entry:
+        raise HTTPException(404, "Log entry not found.")
+
+    item = db.session.query(Item).filter_by(id=item_id, user_id=user.id).first()
+    if not item:
+        raise HTTPException(404, "Item not found.")
+
+    if payload.event_type not in VALID_EVENT_TYPES:
+        raise HTTPException(400, f"Invalid event_type. Must be one of: {', '.join(VALID_EVENT_TYPES)}")
+
+    for key, value in payload.dict().items():
+        setattr(log_entry, key, value)
+
+    try:
+        db.session.commit()
+        db.session.refresh(log_entry)
+    except Exception:
+        logger.exception("Failed to update item log")
+        raise HTTPException(400, "Unable to update log entry.")
+
+    return log_entry
+
+
 @route.get("/{item_id}/log")
 def fetch_logs(item_id: int, user: User = Depends(authenticate)):
     item = db.session.query(Item).filter_by(id=item_id, user_id=user.id).first()
