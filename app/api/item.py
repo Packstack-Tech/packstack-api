@@ -164,8 +164,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
                 item_id=item.id,
                 user_id=user.id,
                 event_type="acquired",
-                note=f"Acquired on {payload.acquired_date}",
-                event_date=datetime.date.today(),
+                event_date=payload.acquired_date,
             )
             db.session.add(log)
 
