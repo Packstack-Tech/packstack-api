@@ -152,8 +152,10 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
                 item_id=item.id,
                 user_id=user.id,
                 event_type="condition_change",
-                notes=f"Condition changed from {old_condition or 'unset'} to {payload.condition}",
-                logged_at=datetime.datetime.utcnow(),
+                note=f"Condition changed from {old_condition or 'unset'} to {payload.condition}",
+                old_condition=old_condition,
+                new_condition=payload.condition,
+                event_date=datetime.date.today(),
             )
             db.session.add(log)
 
@@ -162,8 +164,8 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
                 item_id=item.id,
                 user_id=user.id,
                 event_type="acquired",
-                notes=f"Acquired on {payload.acquired_date}",
-                logged_at=datetime.datetime.utcnow(),
+                note=f"Acquired on {payload.acquired_date}",
+                event_date=datetime.date.today(),
             )
             db.session.add(log)
 
