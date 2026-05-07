@@ -222,15 +222,15 @@ def sort_categories(categories: SortItems, user: User = Depends(authenticate)):
 
 
 @route.get("s")
-def fetch(user: User = Depends(authenticate), limit: int = 100, offset: int = 0):
+def fetch(user: User = Depends(authenticate)):
     items = db.session.query(Item).filter_by(
-        user_id=user.id).offset(offset).limit(limit).all()
+        user_id=user.id, deleted=False).all()
     return items
 
 
 @route.get("s/grouped")
 def fetch_grouped(user: User = Depends(authenticate)):
-    items = db.session.query(Item).filter_by(user_id=user.id).all()
+    items = db.session.query(Item).filter_by(user_id=user.id, deleted=False).all()
 
     groups = {}
     for item in items:
@@ -257,6 +257,18 @@ def remove(item_id: int, user: User = Depends(authenticate)):
         raise HTTPException(404, "Item not found.")
 
     item.removed = True
+    db.session.commit()
+
+
+@route.post("/{item_id}/delete", status_code=204)
+def soft_delete(item_id: int, user: User = Depends(authenticate)):
+    item = db.session.query(Item).filter_by(
+        id=item_id, user_id=user.id).first()
+
+    if not item:
+        raise HTTPException(404, "Item not found.")
+
+    item.deleted = True
     db.session.commit()
 
 
