@@ -299,6 +299,15 @@ def bulk_restore(item_ids: BulkItemIds, user: User = Depends(authenticate)):
     return True
 
 
+@route.post("/bulk-delete", status_code=204)
+def bulk_delete(item_ids: BulkItemIds, user: User = Depends(authenticate)):
+    ids = list(item_ids)
+    db.session.query(Item).filter(
+        Item.id.in_(ids), Item.user_id == user.id
+    ).update({"deleted": True}, synchronize_session="fetch")
+    db.session.commit()
+
+
 @route.post("/import/lighterpack", status_code=201)
 async def import_lighterpack_items(file: UploadFile = File(...), user: User = Depends(authenticate)):
     contents = await file.read()
