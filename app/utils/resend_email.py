@@ -76,6 +76,56 @@ def send_verification_email(email, token):
         sentry_sdk.capture_exception(e)
 
 
+def send_welcome_email(email):
+    link_style = "color: #111827; font-weight: 600; text-decoration: underline;"
+    body = (
+        '<p style="font-size: 18px; font-weight: 700; color: #111827; margin-top: 0;">'
+        "Welcome to Packstack, and thanks for signing up!</p>"
+
+        "<p>More than 3,000 backpackers and outdoor enthusiasts are using Packstack "
+        "to create accurate packing lists, estimate calorie requirements and manage "
+        "their gear. I&rsquo;m happy to count you among them.</p>"
+
+        "<p><strong>To get started,</strong> you&rsquo;ll have to enter the gear you own. "
+        "This is the laborious part, but it&rsquo;s worth it. To make it a little easier, "
+        "we&rsquo;ll automatically populate the item category and weight when you enter "
+        "the manufacturer and product.</p>"
+
+        "<p>If you have an existing gear spreadsheet, you can upload it through the "
+        f'<a href="https://app.packstack.io/" target="_blank" style="{link_style}">web app</a>.</p>'
+
+        f'<p style="margin: 28px 0;"><a href="https://app.packstack.io/" '
+        f'target="_blank" style="{BUTTON_STYLE}">Add your gear</a></p>'
+
+        "<p>Packstack is available on "
+        '<a href="https://apps.apple.com/us/app/packstack-app/id6760873801" '
+        f'target="_blank" style="{link_style}">iOS</a>, '
+        '<a href="https://play.google.com/store/apps/details?id=io.packstack.mobile" '
+        f'target="_blank" style="{link_style}">Android</a> and the '
+        f'<a href="https://app.packstack.io/" target="_blank" style="{link_style}">web</a>. '
+        "Your data will automatically stay in sync across devices.</p>"
+
+        "<p>If you ever have any questions, feedback or feature requests, just respond "
+        "to this email. And don&rsquo;t forget to check out our free "
+        '<a href="https://www.packstack.io/tools/ultralight-research" '
+        f'target="_blank" style="{link_style}">Ultralight Gear Research</a> tool '
+        "when you&rsquo;re on the hunt for new gear.</p>"
+
+        '<p style="margin-top: 32px; margin-bottom: 0;">Jerad Maplethorpe</p>'
+        '<p style="margin-top: 2px; color: #6b7280; font-size: 13px;">Founder, Packstack</p>'
+    )
+    try:
+        resend.Emails.send({
+            "from": FROM_EMAIL,
+            "to": [email],
+            "subject": "Welcome to Packstack",
+            "html": _wrap(body),
+        })
+    except Exception as e:
+        logger.exception("Failed to send welcome email")
+        sentry_sdk.capture_exception(e)
+
+
 def send_otp_email(email, otp_code):
     code_style = (
         "display: inline-block; font-size: 32px; font-weight: 700; "

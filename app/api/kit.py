@@ -39,6 +39,13 @@ def get_kit(kit_id: int, user: User = Depends(authenticate)):
 
 @route.post("", status_code=201)
 def create_kit(payload: KitType, user: User = Depends(authenticate)):
+    # Kits are a premium feature. Existing free users who already created kits
+    # before the paywall are grandfathered in; brand-new free users are gated.
+    if not user.is_subscribed:
+        existing_kits = db.session.query(Kit).filter_by(user_id=user.id).count()
+        if existing_kits == 0:
+            raise HTTPException(402, "Upgrade to create kits.")
+
     kit = Kit(name=payload.name, user_id=user.id)
 
     try:

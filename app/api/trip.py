@@ -16,6 +16,22 @@ logger = logging.getLogger(__name__)
 
 route = APIRouter()
 
+# Number of active (non-removed) trips a non-subscribed user may have.
+FREE_TRIP_LIMIT = 1
+
+
+def _enforce_trip_limit(user: User):
+    """Block non-subscribed users from exceeding the free trip allowance."""
+    if user.is_subscribed:
+        return
+
+    active_trips = db.session.query(Trip).filter_by(
+        user_id=user.id, removed=False).count()
+
+    if active_trips >= FREE_TRIP_LIMIT:
+        raise HTTPException(
+            402, "Upgrade to create more than one trip.")
+
 
 @route.get("")
 def fetch():
@@ -121,6 +137,8 @@ class TripType(BaseModel):
 
 @route.post("", status_code=201)
 def create(payload: TripType, user: User = Depends(authenticate)):
+    _enforce_trip_limit(user)
+
     new_trip = Trip(user_id=user.id, **payload.dict(exclude_none=True))
 
     try:
@@ -181,6 +199,8 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
 
 @route.post("/{trip_id}/clone", status_code=201)
 def clone(trip_id: int, user: User = Depends(authenticate)):
+    _enforce_trip_limit(user)
+
     trip = db.session.query(Trip).filter_by(
         id=trip_id, user_id=user.id).first()
 

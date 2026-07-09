@@ -29,7 +29,9 @@ from utils.consts import (
     DEVELOPMENT, GOOGLE_CLIENT_IDS, APPLE_CLIENT_IDS, REVIEW_EMAIL, REVIEW_OTP,
     APPLE_KEY_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY, GOOGLE_CLIENT_SECRET,
 )
-from utils.resend_email import send_otp_email, create_contact, delete_contact
+from utils.resend_email import (
+    send_otp_email, send_welcome_email, create_contact, delete_contact,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +292,7 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
 
         if not DEVELOPMENT:
             create_contact(email)
+            send_welcome_email(email)
 
         user = new_user
     else:
@@ -374,6 +377,7 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
         if not DEVELOPMENT:
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
+            send_welcome_email(email)
 
     if payload.server_auth_code and GOOGLE_CLIENT_SECRET:
         refresh_token = _exchange_google_code(payload.server_auth_code)
@@ -470,6 +474,7 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
         if not DEVELOPMENT:
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
+            send_welcome_email(email)
 
     if payload.authorization_code and APPLE_PRIVATE_KEY:
         refresh_token = _exchange_apple_code(payload.authorization_code)
