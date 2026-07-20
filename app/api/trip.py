@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 route = APIRouter()
 
 # Number of active (non-removed) trips a non-subscribed user may have.
-FREE_TRIP_LIMIT = 1
+FREE_TRIP_LIMIT = 3
 
 
 def _enforce_trip_limit(user: User):
@@ -30,7 +30,7 @@ def _enforce_trip_limit(user: User):
 
     if active_trips >= FREE_TRIP_LIMIT:
         raise HTTPException(
-            402, "Upgrade to create more than one trip.")
+            402, "Upgrade to create more than three packs.")
 
 
 @route.get("")
