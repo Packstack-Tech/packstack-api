@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
@@ -212,6 +212,58 @@ def catalog_categories():
     )
 
 
+def _serialize_product_groups(entries):
+    """Group CatalogProduct rows (sorted by brand, product) into products
+    with nested variants. Shared by catalog browse and product search."""
+    products = []
+    key_fn = attrgetter("brand_name", "product_name")
+    for (brand, product), group_iter in groupby(entries, key=key_fn):
+        variants_raw = list(group_iter)
+        variants = []
+        lightest_g: float | None = None
+        product_url: str | None = None
+        catalog_url_slug: str | None = None
+
+        for v in variants_raw:
+            w_g = _weight_to_grams(v.weight, v.weight_unit)
+            if w_g is not None and (lightest_g is None or w_g < lightest_g):
+                lightest_g = w_g
+            if not product_url and v.product_url:
+                product_url = v.product_url
+            if not catalog_url_slug and v.catalog_url_slug:
+                catalog_url_slug = v.catalog_url_slug
+
+            variants.append({
+                "id": v.id,
+                "brand_id": v.brand_id,
+                "product_id": v.product_id,
+                "product_variant_id": v.product_variant_id,
+                "variant_name": v.variant_name,
+                "display_name": v.display_name,
+                "weight": float(v.weight) if v.weight is not None else None,
+                "weight_unit": v.weight_unit,
+                "image_url": v.image_url,
+                "description": v.description,
+                "additional_specs": v.additional_specs,
+                "kcal": v.kcal,
+            })
+
+        first = variants_raw[0]
+        products.append({
+            "brand_name": brand,
+            "product_name": product,
+            "product_url": product_url,
+            "catalog_url_slug": catalog_url_slug,
+            "category": first.category_suggestion,
+            "subcategory": first.subcategory,
+            "subcategory_slug": _slugify(first.subcategory) if first.subcategory else None,
+            "lightest_weight_g": round(lightest_g, 2) if lightest_g is not None else None,
+            "variants": variants,
+        })
+
+    return products
+
+
 @route.get("/catalog/browse/{slug}")
 def catalog_browse(slug: str):
     # Build slug -> subcategory name lookup from live data
@@ -241,44 +293,7 @@ def catalog_browse(slug: str):
 
     category_name = entries[0].category_suggestion if entries else None
 
-    products = []
-    key_fn = attrgetter("brand_name", "product_name")
-    for (brand, product), group_iter in groupby(entries, key=key_fn):
-        variants_raw = list(group_iter)
-        variants = []
-        lightest_g: float | None = None
-        product_url: str | None = None
-        catalog_url_slug: str | None = None
-
-        for v in variants_raw:
-            w_g = _weight_to_grams(v.weight, v.weight_unit)
-            if w_g is not None and (lightest_g is None or w_g < lightest_g):
-                lightest_g = w_g
-            if not product_url and v.product_url:
-                product_url = v.product_url
-            if not catalog_url_slug and v.catalog_url_slug:
-                catalog_url_slug = v.catalog_url_slug
-
-            variants.append({
-                "id": v.id,
-                "variant_name": v.variant_name,
-                "display_name": v.display_name,
-                "weight": float(v.weight) if v.weight is not None else None,
-                "weight_unit": v.weight_unit,
-                "image_url": v.image_url,
-                "description": v.description,
-                "additional_specs": v.additional_specs,
-            })
-
-        products.append({
-            "brand_name": brand,
-            "product_name": product,
-            "product_url": product_url,
-            "catalog_url_slug": catalog_url_slug,
-            "lightest_weight_g": round(lightest_g, 2) if lightest_g is not None else None,
-            "variants": variants,
-        })
-
+    products = _serialize_product_groups(entries)
     products.sort(key=lambda p: (
         p["lightest_weight_g"] is None,
         p["lightest_weight_g"] or 0,
@@ -291,6 +306,37 @@ def catalog_browse(slug: str):
         "product_count": len(products),
         "products": products,
     }
+
+
+MAX_GEAR_SEARCH_PRODUCTS = 50
+
+
+@route.get("/catalog/products/search")
+def catalog_product_search(q: str = ""):
+    """Freeform gear search across brand and product names.
+    Returns grouped products in the same shape as catalog browse."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+
+    search = f"%{q}%"
+    entries = (
+        db.session.query(CatalogProduct)
+        .filter(
+            CatalogProduct.status == "approved",
+            or_(
+                CatalogProduct.brand_name.ilike(search),
+                CatalogProduct.product_name.ilike(search),
+                (CatalogProduct.brand_name + " " +
+                 CatalogProduct.product_name).ilike(search),
+            ),
+        )
+        .order_by(CatalogProduct.brand_name, CatalogProduct.product_name)
+        .limit(500)
+        .all()
+    )
+
+    return _serialize_product_groups(entries)[:MAX_GEAR_SEARCH_PRODUCTS]
 
 
 @route.get("/brand/search/{query}")
