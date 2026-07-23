@@ -53,7 +53,7 @@ def get_session():
 # AI client
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-sonnet-5"
 _client = None
 
 
@@ -67,10 +67,11 @@ def _get_ai_client() -> anthropic.Anthropic:
     return _client
 
 
-def ai_complete(system: str, user: str, tools: list | None = None, max_retries: int = 3):
+def ai_complete(system: str, user: str, tools: list | None = None, max_retries: int = 3,
+                model: str | None = None):
     client = _get_ai_client()
     kwargs = dict(
-        model=DEFAULT_MODEL,
+        model=model or DEFAULT_MODEL,
         max_tokens=4096,
         system=system,
         messages=[{"role": "user", "content": user}],
