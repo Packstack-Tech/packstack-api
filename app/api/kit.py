@@ -12,6 +12,20 @@ logger = logging.getLogger(__name__)
 
 route = APIRouter()
 
+FREE_KIT_LIMIT = 1
+
+
+def _enforce_kit_limit(user: User):
+    """Block non-subscribed users from exceeding the free kit allowance."""
+    if user.is_subscribed:
+        return
+
+    kit_count = db.session.query(Kit).filter_by(user_id=user.id).count()
+
+    if kit_count >= FREE_KIT_LIMIT:
+        raise HTTPException(
+            402, "Upgrade to create more than one kit.")
+
 
 class KitItemType(BaseModel):
     item_id: int
@@ -39,6 +53,8 @@ def get_kit(kit_id: int, user: User = Depends(authenticate)):
 
 @route.post("", status_code=201)
 def create_kit(payload: KitType, user: User = Depends(authenticate)):
+    _enforce_kit_limit(user)
+
     kit = Kit(name=payload.name, user_id=user.id)
 
     try:

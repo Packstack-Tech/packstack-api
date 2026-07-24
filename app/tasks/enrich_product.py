@@ -67,16 +67,27 @@ def _get_ai_client() -> anthropic.Anthropic:
     return _client
 
 
+# Adaptive thinking is only available on newer Sonnet/Opus models —
+# passing it to Haiku returns a 400 (invalid_request_error).
+ADAPTIVE_THINKING_PREFIXES = ("claude-sonnet-5", "claude-sonnet-4-6", "claude-opus")
+
+
+def supports_adaptive_thinking(model: str) -> bool:
+    return model.startswith(ADAPTIVE_THINKING_PREFIXES)
+
+
 def ai_complete(system: str, user: str, tools: list | None = None, max_retries: int = 3,
                 model: str | None = None):
     client = _get_ai_client()
+    resolved_model = model or DEFAULT_MODEL
     kwargs = dict(
-        model=model or DEFAULT_MODEL,
+        model=resolved_model,
         max_tokens=4096,
         system=system,
         messages=[{"role": "user", "content": user}],
-        thinking={"type": "adaptive"},
     )
+    if supports_adaptive_thinking(resolved_model):
+        kwargs["thinking"] = {"type": "adaptive"}
     if tools:
         kwargs["tools"] = tools
 
