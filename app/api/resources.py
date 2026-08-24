@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
@@ -212,9 +212,13 @@ def catalog_categories():
     )
 
 
-def _serialize_product_groups(entries):
+def _serialize_product_groups(entries, compact: bool = False):
     """Group CatalogProduct rows (sorted by brand, product) into products
-    with nested variants. Shared by catalog browse and product search."""
+    with nested variants. Shared by catalog browse and product search.
+
+    ``compact`` trims the prose-heavy fields (description, additional_specs,
+    display_name, per-variant images) for the quick-add typeahead, which only
+    needs identity, weight and calories to build an item."""
     products = []
     key_fn = attrgetter("brand_name", "product_name")
     for (brand, product), group_iter in groupby(entries, key=key_fn):
@@ -223,6 +227,7 @@ def _serialize_product_groups(entries):
         lightest_g: float | None = None
         product_url: str | None = None
         catalog_url_slug: str | None = None
+        image_url: str | None = None
 
         for v in variants_raw:
             w_g = _weight_to_grams(v.weight, v.weight_unit)
@@ -232,21 +237,27 @@ def _serialize_product_groups(entries):
                 product_url = v.product_url
             if not catalog_url_slug and v.catalog_url_slug:
                 catalog_url_slug = v.catalog_url_slug
+            if not image_url and v.image_url:
+                image_url = v.image_url
 
-            variants.append({
+            variant = {
                 "id": v.id,
                 "brand_id": v.brand_id,
                 "product_id": v.product_id,
                 "product_variant_id": v.product_variant_id,
                 "variant_name": v.variant_name,
-                "display_name": v.display_name,
                 "weight": float(v.weight) if v.weight is not None else None,
                 "weight_unit": v.weight_unit,
-                "image_url": v.image_url,
-                "description": v.description,
-                "additional_specs": v.additional_specs,
                 "kcal": v.kcal,
-            })
+            }
+            if not compact:
+                variant.update({
+                    "display_name": v.display_name,
+                    "image_url": v.image_url,
+                    "description": v.description,
+                    "additional_specs": v.additional_specs,
+                })
+            variants.append(variant)
 
         first = variants_raw[0]
         products.append({
@@ -254,6 +265,7 @@ def _serialize_product_groups(entries):
             "product_name": product,
             "product_url": product_url,
             "catalog_url_slug": catalog_url_slug,
+            "image_url": image_url,
             "category": first.category_suggestion,
             "subcategory": first.subcategory,
             "subcategory_slug": _slugify(first.subcategory) if first.subcategory else None,
@@ -312,31 +324,48 @@ MAX_GEAR_SEARCH_PRODUCTS = 50
 
 
 @route.get("/catalog/products/search")
-def catalog_product_search(q: str = ""):
-    """Freeform gear search across brand and product names.
-    Returns grouped products in the same shape as catalog browse."""
+def catalog_product_search(q: str = "", compact: bool = False):
+    """Freeform gear search across brand, product and subcategory names.
+
+    Subcategory is searched so generic queries ("sleeping pad", "quilt") return
+    results, which is how people search in the quick-add flow.
+
+    Returns grouped products in the same shape as catalog browse; pass
+    ``compact=1`` for the trimmed typeahead payload."""
     q = q.strip()
     if len(q) < 2:
         return []
 
     search = f"%{q}%"
+
+    name_match = or_(
+        CatalogProduct.brand_name.ilike(search),
+        CatalogProduct.product_name.ilike(search),
+        (CatalogProduct.brand_name + " " +
+         CatalogProduct.product_name).ilike(search),
+    )
+
+    # Name matches outrank subcategory-only matches, so a generic query like
+    # "tent" surfaces products actually named "tent" before the whole Tent
+    # subcategory, and the row cap truncates the least relevant rather than
+    # everything after brand "C". Ordering stays grouped by brand+product so
+    # a product's variants remain adjacent for _serialize_product_groups.
+    relevance = case((name_match, 0), else_=1)
+
     entries = (
         db.session.query(CatalogProduct)
         .filter(
             CatalogProduct.status == "approved",
-            or_(
-                CatalogProduct.brand_name.ilike(search),
-                CatalogProduct.product_name.ilike(search),
-                (CatalogProduct.brand_name + " " +
-                 CatalogProduct.product_name).ilike(search),
-            ),
+            or_(name_match, CatalogProduct.subcategory.ilike(search)),
         )
-        .order_by(CatalogProduct.brand_name, CatalogProduct.product_name)
+        .order_by(relevance, CatalogProduct.brand_name,
+                  CatalogProduct.product_name)
         .limit(500)
         .all()
     )
 
-    return _serialize_product_groups(entries)[:MAX_GEAR_SEARCH_PRODUCTS]
+    return _serialize_product_groups(
+        entries, compact=compact)[:MAX_GEAR_SEARCH_PRODUCTS]
 
 
 @route.get("/brand/search/{query}")

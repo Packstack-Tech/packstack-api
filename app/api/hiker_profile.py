@@ -7,10 +7,31 @@ from typing import Optional
 
 from models.base import User, HikerProfile
 from utils.auth import authenticate
+from utils.consts import FREE_HIKER_PROFILE_LIMIT
 
 logger = logging.getLogger(__name__)
 
 route = APIRouter(dependencies=[Depends(authenticate)])
+
+# FREE_HIKER_PROFILE_LIMIT is read from the environment (see utils/consts.py)
+# and is unlimited unless set.
+
+
+def _enforce_profile_limit(user: User):
+    """Block non-subscribed users from exceeding the free profile allowance.
+
+    The first profile is always allowed, so onboarding is unaffected. Profiles
+    that already exist over the limit are untouched.
+    """
+    if user.is_subscribed:
+        return
+
+    profile_count = db.session.query(HikerProfile).filter_by(
+        user_id=user.id).count()
+
+    if profile_count >= FREE_HIKER_PROFILE_LIMIT:
+        raise HTTPException(
+            402, "Upgrade to create more hiker profiles.")
 
 
 class HikerProfileType(BaseModel):
@@ -49,6 +70,8 @@ def get_profile(profile_id: int, user: User = Depends(authenticate)):
 
 @route.post("", status_code=201)
 def create_profile(payload: HikerProfileType, user: User = Depends(authenticate)):
+    _enforce_profile_limit(user)
+
     existing_count = db.session.query(HikerProfile).filter_by(user_id=user.id).count()
 
     is_default = True if existing_count == 0 else payload.is_default

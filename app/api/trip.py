@@ -219,6 +219,11 @@ def clone(trip_id: int, user: User = Depends(authenticate)):
         db.session.add(cloned_trip)
         db.session.flush()
 
+        # Deliberately not gated by FREE_PACKS_PER_TRIP: a clone is a copy of
+        # content the user already has, and dropping packs from it would be a
+        # silent, invisible loss. The clone is still bounded by the trip limit
+        # enforced above, and an over-limit source trip can only exist because
+        # it was grandfathered in.
         packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
         for pack in packs:
             cloned_pack_data = clone_model(pack, ['trip_id'])
