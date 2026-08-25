@@ -51,9 +51,26 @@ def resolve_product_variant(session: Session, variant_name: str, product_id: int
 
 
 def resolve_category(session: Session, category_name: str, user_id: int) -> int:
+    """Resolve a category name to a Category id visible to this user.
+
+    Scoped to the caller's own categories plus the shared ones, which is not a
+    refinement but a correctness requirement. Categories are unique per owner,
+    not globally, so matching on name alone could return another user's private
+    category — and the caller hands the result straight to
+    get_or_create_item_category, which filters on exactly this scope and raises
+    404 "Category does not exist." for anything outside it. A name any other
+    account had used for a custom category therefore failed to save, with an
+    error naming a category that plainly did exist.
+
+    Ordered so the user's own category wins over the shared one of the same
+    name: it was created deliberately, and an unordered .first() would pick
+    arbitrarily between them.
+    """
     name = category_name.strip()
     existing = session.query(Category).filter(
-        func.lower(Category.name) == name.lower()).first()
+        func.lower(Category.name) == name.lower(),
+        or_(Category.user_id == user_id, Category.user_id.is_(None)),
+    ).order_by(Category.user_id.is_(None)).first()
     if existing:
         return existing.id
 
