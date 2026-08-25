@@ -3,7 +3,6 @@ import json
 import logging
 import random
 import time
-import uuid
 
 import jwt as pyjwt
 import requests as http_requests
@@ -25,6 +24,7 @@ from models.base import (
 )
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
 from cryptography.hazmat.primitives import serialization
+from utils.username import generate_username
 from utils.consts import (
     DEVELOPMENT, GOOGLE_CLIENT_IDS, APPLE_CLIENT_IDS, REVIEW_EMAIL, REVIEW_OTP,
     APPLE_KEY_ID, APPLE_TEAM_ID, APPLE_PRIVATE_KEY, GOOGLE_CLIENT_SECRET,
@@ -189,17 +189,19 @@ def send_otp(payload: SendOtpPayload):
         return {"sent": True}
 
     if payload.is_registration:
-        if not payload.username:
-            raise HTTPException(400, "Username is required for registration.")
+        # Optional now: the clients no longer collect a username and the server
+        # generates one at verify time. Still honoured when sent, because
+        # released app builds keep sending it.
+        username = (payload.username or "").strip()
 
-        username = payload.username.strip()
-
-        if len(username) > 15:
+        if username and len(username) > 15:
             raise HTTPException(400, "Username cannot exceed 15 characters.")
 
-        existing = db.session.query(User).filter(
-            (User.email == email) | (func.lower(User.username) == username.lower())
-        ).first()
+        clash = (User.email == email)
+        if username:
+            clash = clash | (func.lower(User.username) == username.lower())
+
+        existing = db.session.query(User).filter(clash).first()
 
         if existing:
             raise HTTPException(409, "Email or username is already registered.")
@@ -261,6 +263,17 @@ class OnboardingPayload(BaseModel):
     """
     profile: Optional[OnboardingProfilePayload] = None
     units: Optional[OnboardingUnitsPayload] = None
+
+
+def _username_taken(candidate: str) -> bool:
+    """Availability check passed to generate_username.
+
+    Advisory only. Two registrations can draw the same name between this check
+    and the insert; the unique index is what actually guarantees it, and the
+    caller reports that as a normal registration failure.
+    """
+    return db.session.query(User.id).filter(
+        func.lower(User.username) == candidate.lower()).first() is not None
 
 
 def apply_onboarding(user: User, onboarding: Optional[OnboardingPayload]):
@@ -377,14 +390,20 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
 
     if payload.is_registration:
         username = (payload.username or record.username or "").strip()
-        if not username:
-            raise HTTPException(400, "Username is required for registration.")
 
-        existing = db.session.query(User).filter(
-            (User.email == email) | (func.lower(User.username) == username.lower())
-        ).first()
+        # Reject a taken email regardless; only check the username when the
+        # client actually chose one. A generated name is checked as it is
+        # drawn, so re-checking it here would be redundant.
+        clash = (User.email == email)
+        if username:
+            clash = clash | (func.lower(User.username) == username.lower())
+
+        existing = db.session.query(User).filter(clash).first()
         if existing:
             raise HTTPException(409, "Email or username is already registered.")
+
+        if not username:
+            username = generate_username(_username_taken)
 
         new_user = User(email=email, username=username, password=None, email_verified=True)
         try:
@@ -469,12 +488,11 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
             db.session.commit()
 
     if not user:
-        username = email.split("@")[0][:15]
-        existing = db.session.query(User).filter(
-            func.lower(User.username) == username.lower()
-        ).first()
-        if existing:
-            username = (username[:7] + uuid.uuid4().hex[:8])[:15]
+        # Not derived from the email any more. Usernames are returned by the
+        # public shared-trip endpoint, so the old scheme published a
+        # recognisable piece of every social signup's address to anyone with
+        # a trip link.
+        username = generate_username(_username_taken)
 
         user = User(
             email=email,
@@ -577,12 +595,11 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
             db.session.commit()
 
     if not user:
-        username = email.split("@")[0][:15]
-        existing = db.session.query(User).filter(
-            func.lower(User.username) == username.lower()
-        ).first()
-        if existing:
-            username = (username[:7] + uuid.uuid4().hex[:8])[:15]
+        # Not derived from the email any more. Usernames are returned by the
+        # public shared-trip endpoint, so the old scheme published a
+        # recognisable piece of every social signup's address to anyone with
+        # a trip link.
+        username = generate_username(_username_taken)
 
         user = User(
             email=email,
