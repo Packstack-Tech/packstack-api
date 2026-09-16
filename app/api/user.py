@@ -772,24 +772,24 @@ def delete_account(response: Response, user: User = Depends(authenticate)):
 
 
 class UserUpdate(BaseModel):
-    display_name: str = None
-    email: str = None
-    bio: str = None
-    unit_weight: str = None
-    unit_distance: str = None
-    unit_temperature: str = None
-    currency: str = None
-    facebook_url: str = None
-    instagram_url: str = None
-    youtube_url: str = None
-    twitter_url: str = None
-    snap_url: str = None
-    personal_url: str = None
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    bio: Optional[str] = None
+    unit_weight: Optional[str] = None
+    unit_distance: Optional[str] = None
+    unit_temperature: Optional[str] = None
+    currency: Optional[str] = None
+    facebook_url: Optional[str] = None
+    instagram_url: Optional[str] = None
+    youtube_url: Optional[str] = None
+    twitter_url: Optional[str] = None
+    snap_url: Optional[str] = None
+    personal_url: Optional[str] = None
 
 
 @route.put("")
 def update(payload: UserUpdate, user: User = Depends(authenticate)):
-    fields = payload.dict(exclude_none=True)
+    fields = payload.model_dump(exclude_none=True)
 
     for key, value in fields.items():
         setattr(user, key, value)

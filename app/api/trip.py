@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from typing import Optional
 from sqlalchemy.orm import joinedload, noload
 
 from models.base import User, Trip, Pack, PackItem, Item
@@ -214,26 +215,26 @@ def get_sitemap():
 
 class TripType(BaseModel):
     title: str
-    location: str = None
-    start_date: str = None
-    end_date: str = None
-    temp_min: float = None
-    temp_max: float = None
-    temp_category: str = None
-    distance: float = None
-    daily_elevation_gain: float = None
-    terrain: str = None
-    pace: str = None
-    notes: str = None
-    published: bool = None
-    removed: bool = None
+    location: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    temp_min: Optional[float] = None
+    temp_max: Optional[float] = None
+    temp_category: Optional[str] = None
+    distance: Optional[float] = None
+    daily_elevation_gain: Optional[float] = None
+    terrain: Optional[str] = None
+    pace: Optional[str] = None
+    notes: Optional[str] = None
+    published: Optional[bool] = None
+    removed: Optional[bool] = None
 
 
 @route.post("", status_code=201)
 def create(payload: TripType, user: User = Depends(authenticate)):
     _enforce_trip_limit(user)
 
-    new_trip = Trip(user_id=user.id, **payload.dict(exclude_none=True))
+    new_trip = Trip(user_id=user.id, **payload.model_dump(exclude_none=True))
 
     try:
         db.session.add(new_trip)
@@ -266,7 +267,7 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
     old_location = trip.location
     old_start_date = str(trip.start_date) if trip.start_date else None
     old_end_date = str(trip.end_date) if trip.end_date else None
-    fields = payload.dict(exclude_none=True)
+    fields = payload.model_dump(exclude_none=True)
 
     try:
         for key, value in fields.items():

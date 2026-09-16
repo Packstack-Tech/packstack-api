@@ -1,24 +1,23 @@
-PyJWT==1.7.1
+PyJWT[crypto]>=2.10,<3
 requests==2.31.0
 passlib==1.7.2
 google-auth
 cryptography
-# 3.x switched to httpx2, which breaks under pydantic<2 at import time. Only
-# ai/sanitize.py uses this; the API itself never imports it.
+# Only ai/sanitize.py uses this; the API itself never imports it. The <3 pin
+# predates the pydantic v2 upgrade and can be lifted when sanitize.py is next touched.
 openai<3
 python-dotenv==1.0.0
 
 psycopg2-binary==2.9.9
-python-multipart==0.0.5
+python-multipart>=0.0.9
 alembic==1.8.0
 fastapi-sqlalchemy==0.2.1
 SQLAlchemy==2.0.38
 resend==2.23.0
 stripe==2.53.0
-fastapi>=0.103.2
-pydantic>=1.8.0,<2.0.0
+fastapi>=0.115,<1
+pydantic>=2.12,<3
 uvicorn[standard]
 sentry-sdk
 celery[redis]
 anthropic
-git+https://github.com/Packstack-Tech/models.git@v2.2.0#egg=models

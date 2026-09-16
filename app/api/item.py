@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi_sqlalchemy import db
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, RootModel, field_validator
 from typing import List, Optional
 from io import StringIO
 from sqlalchemy import or_, func
@@ -23,21 +23,21 @@ route = APIRouter(dependencies=[Depends(authenticate)])
 
 class ItemType(BaseModel):
     name: str
-    brand_id: int = None
-    brand_new: str = None
-    product_id: int = None
-    product_new: str = None
-    product_variant_id: int = None
-    product_variant_new: str = None
-    category_id: int = None
-    category_new: str = None
-    weight: float = None
-    unit: str = None
-    price: float = None
-    calories: float = None
+    brand_id: Optional[int] = None
+    brand_new: Optional[str] = None
+    product_id: Optional[int] = None
+    product_new: Optional[str] = None
+    product_variant_id: Optional[int] = None
+    product_variant_new: Optional[str] = None
+    category_id: Optional[int] = None
+    category_new: Optional[str] = None
+    weight: Optional[float] = None
+    unit: Optional[str] = None
+    price: Optional[float] = None
+    calories: Optional[float] = None
     consumable: bool = False
-    product_url: str = None
-    notes: str = None
+    product_url: Optional[str] = None
+    notes: Optional[str] = None
 
     acquired_date: Optional[str] = None
     acquisition_type: Optional[str] = None
@@ -46,14 +46,15 @@ class ItemType(BaseModel):
     status: Optional[str] = None
     retired_date: Optional[str] = None
     retired_reason: Optional[str] = None
-    replaced_by_id: int = None
+    replaced_by_id: Optional[int] = None
 
-    @validator(
+    @field_validator(
         "acquired_date", "acquisition_type", "purchase_retailer",
         "condition", "status", "retired_date", "retired_reason",
         "product_url", "notes",
-        pre=True, always=True,
+        mode="before",
     )
+    @classmethod
     def empty_str_to_none(cls, v):
         if isinstance(v, str) and v.strip() == "":
             return None
@@ -81,7 +82,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
         payload.category_id = get_or_create_item_category(
             db.session, payload.category_id, user.id)
 
-    item_data = payload.dict()
+    item_data = payload.model_dump()
     item_data.pop("product_new")
     item_data.pop("product_variant_new")
     item_data.pop("brand_new")
@@ -117,7 +118,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
 
 class ItemUpdate(ItemType):
     id: int
-    name: str = None
+    name: Optional[str] = None
 
 
 @route.put("")
@@ -128,7 +129,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
         payload.category_id = get_or_create_item_category(
             db.session, payload.category_id, user.id)
 
-    fields = payload.dict()
+    fields = payload.model_dump()
     fields.pop("product_new")
     fields.pop("product_variant_new")
     fields.pop("brand_new")
@@ -182,11 +183,11 @@ class ItemOrder(BaseModel):
     sort_order: int
 
 
-class SortItems(BaseModel):
-    __root__: List[ItemOrder]
+class SortItems(RootModel[List[ItemOrder]]):
+    """Request body is a bare JSON array of {id, sort_order}."""
 
     def __iter__(self):
-        return iter(self.__root__)
+        return iter(self.root)
 
 
 @route.put("/sort")
@@ -272,11 +273,11 @@ def soft_delete(item_id: int, user: User = Depends(authenticate)):
     db.session.commit()
 
 
-class BulkItemIds(BaseModel):
-    __root__: List[int]
+class BulkItemIds(RootModel[List[int]]):
+    """Request body is a bare JSON array of item ids."""
 
     def __iter__(self):
-        return iter(self.__root__)
+        return iter(self.root)
 
 
 @route.put("/bulk-archive")

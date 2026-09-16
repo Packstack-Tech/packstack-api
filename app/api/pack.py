@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 from models.base import User, Pack, PackItem, Trip
 from utils.auth import authenticate
@@ -117,16 +117,16 @@ def get_pack_by_id(id: int, user: User = Depends(authenticate)):
 
 class PackItemType(BaseModel):
     item_id: int
-    quantity: float = None
+    quantity: Optional[float] = None
     worn: bool = False
     checked: bool = False
-    sort_order: int = 0
+    sort_order: float = 0
 
 
 class PackType(BaseModel):
     title: str
-    trip_id: int = None
-    items: List[PackItemType] = None
+    trip_id: Optional[int] = None
+    items: Optional[List[PackItemType]] = None
 
 
 @route.post("", status_code=201)
@@ -175,7 +175,7 @@ def update_pack(id: int, payload: PackType, user: User = Depends(authenticate)):
     # mention trip_id would silently orphan the pack -- and with the gate on,
     # re-attaching it could then be refused, stranding it for good. An
     # explicit null still detaches.
-    trip_id_given = 'trip_id' in payload.__fields_set__
+    trip_id_given = 'trip_id' in payload.model_fields_set
     new_trip_id = payload.trip_id if trip_id_given else pack.trip_id
 
     # Before any mutation, while pack.trip_id is still the stored value.
@@ -258,7 +258,7 @@ def generate_pack(pack_id: int, user: User = Depends(authenticate)):
 
 
 class AssignPack(BaseModel):
-    trip_id: int = None
+    trip_id: Optional[int] = None
 
 
 @route.put("/{pack_id}/assign")

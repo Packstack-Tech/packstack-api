@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "packstack-models"
+version = "2.2.0"
+description = "Packstack database models (SQLAlchemy). Lives in the API repo; installed editable by workshop scripts."
+requires-python = ">=3.10"
+dependencies = ["SQLAlchemy>=2.0", "passlib", "PyJWT"]
+
+# Only the models package is installable from this repo. The FastAPI app under
+# app/ is run from source in the container and is deliberately not packaged.
+[tool.setuptools]
+packages = ["models"]

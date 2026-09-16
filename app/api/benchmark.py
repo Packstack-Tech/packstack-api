@@ -36,7 +36,7 @@ def upsert_benchmark(category_name: str, payload: BenchmarkUpdate, user: User = 
         override = CategoryBenchmark(user_id=user.id, category_name=category_name)
         db.session.add(override)
 
-    fields = payload.dict(exclude_none=True)
+    fields = payload.model_dump(exclude_none=True)
     for key, value in fields.items():
         setattr(override, key, value)
 

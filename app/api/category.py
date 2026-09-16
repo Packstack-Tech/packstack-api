@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from typing import Optional
 from sqlalchemy import or_
 
 from models.base import User, Category, Item, ItemCategory
@@ -51,7 +52,7 @@ def fetch(user: User = Depends(authenticate)):
 
 
 class CategoryUpdateType(BaseModel):
-    name: str = None
+    name: Optional[str] = None
 
 
 @route.put("/{category_id}")
@@ -84,7 +85,7 @@ def update(category_id: int, payload: CategoryUpdateType, user: User = Depends(a
     if category.user_id != user.id:
         raise HTTPException(403, "Category does not exist.")
 
-    fields = payload.dict(exclude_none=True)
+    fields = payload.model_dump(exclude_none=True)
     for key, value in fields.items():
         setattr(category, key, value)
 

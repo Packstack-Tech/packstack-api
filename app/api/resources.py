@@ -75,7 +75,7 @@ def get_product_variants(product_id: int, user: User = Depends(authenticate)):
 
 class CreateProduct(BaseModel):
     name: str
-    brand_id: int = None
+    brand_id: Optional[int] = None
 
 
 @route.post("/product", status_code=201)

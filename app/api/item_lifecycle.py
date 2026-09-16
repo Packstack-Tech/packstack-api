@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from models.base import User, Item, ItemLog
@@ -28,13 +28,14 @@ class LifecycleUpdate(BaseModel):
     status: Optional[str] = None
     retired_date: Optional[str] = None
     retired_reason: Optional[str] = None
-    replaced_by_id: int = None
+    replaced_by_id: Optional[int] = None
 
-    @validator(
+    @field_validator(
         "acquired_date", "acquisition_type", "purchase_retailer",
         "condition", "status", "retired_date", "retired_reason",
-        pre=True, always=True,
+        mode="before",
     )
+    @classmethod
     def empty_str_to_none(cls, v):
         if isinstance(v, str) and v.strip() == "":
             return None
@@ -68,7 +69,7 @@ def update_lifecycle(item_id: int, payload: LifecycleUpdate, user: User = Depend
 
     old_condition = item.condition
 
-    fields = payload.dict(exclude_none=True)
+    fields = payload.model_dump(exclude_none=True)
     for key, value in fields.items():
         setattr(item, key, value)
 
@@ -122,7 +123,7 @@ def create_log(item_id: int, payload: ItemLogCreate, user: User = Depends(authen
     log_entry = ItemLog(
         item_id=item.id,
         user_id=user.id,
-        **payload.dict(),
+        **payload.model_dump(),
     )
 
     try:
@@ -151,7 +152,7 @@ def update_log(item_id: int, log_id: int, payload: ItemLogCreate, user: User = D
     if payload.event_type not in VALID_EVENT_TYPES:
         raise HTTPException(400, f"Invalid event_type. Must be one of: {', '.join(VALID_EVENT_TYPES)}")
 
-    for key, value in payload.dict().items():
+    for key, value in payload.model_dump().items():
         setattr(log_entry, key, value)
 
     try:

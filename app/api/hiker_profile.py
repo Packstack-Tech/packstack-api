@@ -92,7 +92,7 @@ def update_profile(profile_id: int, payload: HikerProfileUpdateType, user: User 
     if not profile:
         raise HTTPException(404, "Hiker profile does not exist.")
 
-    fields = payload.dict(exclude_none=True)
+    fields = payload.model_dump(exclude_none=True)
 
     for key, value in fields.items():
         setattr(profile, key, value)
