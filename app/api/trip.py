@@ -3,12 +3,14 @@ import logging
 import uuid as uuid_module
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from sqlalchemy.orm import joinedload
 
 from models.base import User, Trip, Pack, PackItem
 from tasks.enrich_trip import enrich_trip
+from utils.ai_review import build_ai_review_markdown
 from utils.auth import authenticate
 from utils.utils import clone_model
 
@@ -102,6 +104,46 @@ def fetch_meta(trip_id: str):
         "trip": trip,
         "user": user._asdict()
     }
+
+
+def _resolve_trip(trip_id: str) -> Trip:
+    """Look up a trip by public uuid or numeric id, as the share URLs do."""
+    try:
+        uuid_val = uuid_module.UUID(trip_id)
+        trip = db.session.query(Trip).filter_by(uuid=uuid_val).first()
+    except ValueError:
+        try:
+            trip = db.session.query(Trip).filter_by(id=int(trip_id)).first()
+        except (ValueError, TypeError):
+            raise HTTPException(400, "Invalid trip identifier.")
+
+    if not trip or trip.removed:
+        raise HTTPException(404, "Trip not found.")
+    return trip
+
+
+@route.get("/{trip_id}/ai-review")
+def fetch_ai_review(trip_id: str):
+    """Trip + packs + totals as one markdown document for pasting into an AI
+    assistant. Same visibility as /info and /meta (anyone with the link).
+    Backs the "Copy for AI" button on the public pack page.
+    """
+    trip = _resolve_trip(trip_id)
+
+    user = db.session.query(User.unit_distance,
+                            User.unit_temperature).filter_by(id=trip.user_id).first()
+    if not user:
+        raise HTTPException(404, "Trip owner not found.")
+
+    packs = db.session.query(Pack).filter_by(trip_id=trip.id).order_by(Pack.id).all()
+    public_url = f"https://packstack.io/pack/{trip.uuid or trip.id}"
+    markdown = build_ai_review_markdown(trip, packs, user, public_url=public_url)
+
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @route.get("/sitemap")
@@ -226,7 +268,9 @@ def clone(trip_id: int, user: User = Depends(authenticate)):
         # it was grandfathered in.
         packs = db.session.query(Pack).filter_by(trip_id=trip.id).all()
         for pack in packs:
-            cloned_pack_data = clone_model(pack, ['trip_id'])
+            # hiker_profile_id is a dead column (single-profile product); don't
+            # carry stale assignments into the clone.
+            cloned_pack_data = clone_model(pack, ['trip_id', 'hiker_profile_id'])
             cloned_pack = Pack(**cloned_pack_data, trip_id=cloned_trip.id)
             db.session.add(cloned_pack)
             db.session.flush()

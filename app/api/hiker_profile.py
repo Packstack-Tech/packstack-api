@@ -7,31 +7,17 @@ from typing import Optional
 
 from models.base import User, HikerProfile
 from utils.auth import authenticate
-from utils.consts import FREE_HIKER_PROFILE_LIMIT
 
 logger = logging.getLogger(__name__)
 
 route = APIRouter(dependencies=[Depends(authenticate)])
 
-# FREE_HIKER_PROFILE_LIMIT is read from the environment (see utils/consts.py)
-# and is unlimited unless set.
-
-
-def _enforce_profile_limit(user: User):
-    """Block non-subscribed users from exceeding the free profile allowance.
-
-    The first profile is always allowed, so onboarding is unaffected. Profiles
-    that already exist over the limit are untouched.
-    """
-    if user.is_subscribed:
-        return
-
-    profile_count = db.session.query(HikerProfile).filter_by(
-        user_id=user.id).count()
-
-    if profile_count >= FREE_HIKER_PROFILE_LIMIT:
-        raise HTTPException(
-            402, "Upgrade to create more hiker profiles.")
+# One profile per user. Multi-hiker profiles were removed from the product in
+# Sept 2026 (a handful of users ever assigned a pack to a second profile). The
+# table, the is_default column and pack.hiker_profile_id were left in place
+# rather than migrated; clients treat the is_default row (else the oldest) as
+# THE profile. The list/get/update/delete routes below stay for mobile builds
+# still in the wild; nothing new should be built on them.
 
 
 class HikerProfileType(BaseModel):
@@ -41,15 +27,6 @@ class HikerProfileType(BaseModel):
     year_of_birth: Optional[int] = None
     sex: Optional[str] = None
     body_type: Optional[str] = None
-    is_default: bool = False
-
-
-def _clear_other_defaults(user_id: int, exclude_id: int = None):
-    query = db.session.query(HikerProfile).filter_by(user_id=user_id, is_default=True)
-    if exclude_id:
-        query = query.filter(HikerProfile.id != exclude_id)
-    for profile in query.all():
-        profile.is_default = False
 
 
 @route.get("")
@@ -70,14 +47,12 @@ def get_profile(profile_id: int, user: User = Depends(authenticate)):
 
 @route.post("", status_code=201)
 def create_profile(payload: HikerProfileType, user: User = Depends(authenticate)):
-    _enforce_profile_limit(user)
-
     existing_count = db.session.query(HikerProfile).filter_by(user_id=user.id).count()
 
-    is_default = True if existing_count == 0 else payload.is_default
-
-    if is_default:
-        _clear_other_defaults(user.id)
+    # Hard limit of one for everyone. Old mobile builds that still offer an
+    # "Add" button surface this as their generic create-failed alert.
+    if existing_count > 0:
+        raise HTTPException(409, "You already have a hiker profile.")
 
     profile = HikerProfile(
         user_id=user.id,
@@ -87,7 +62,7 @@ def create_profile(payload: HikerProfileType, user: User = Depends(authenticate)
         year_of_birth=payload.year_of_birth,
         sex=payload.sex,
         body_type=payload.body_type,
-        is_default=is_default,
+        is_default=True,
     )
 
     try:
@@ -108,7 +83,6 @@ class HikerProfileUpdateType(BaseModel):
     year_of_birth: Optional[int] = None
     sex: Optional[str] = None
     body_type: Optional[str] = None
-    is_default: Optional[bool] = None
 
 
 @route.put("/{profile_id}")
@@ -119,9 +93,6 @@ def update_profile(profile_id: int, payload: HikerProfileUpdateType, user: User 
         raise HTTPException(404, "Hiker profile does not exist.")
 
     fields = payload.dict(exclude_none=True)
-
-    if fields.get("is_default"):
-        _clear_other_defaults(user.id, exclude_id=profile.id)
 
     for key, value in fields.items():
         setattr(profile, key, value)

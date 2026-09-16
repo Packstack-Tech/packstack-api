@@ -82,5 +82,3 @@ def _free_limit(name: str) -> int:
 # limit users see on the Packs tab -- that one counts Trips (FREE_TRIP_LIMIT).
 FREE_PACKS_PER_TRIP = _free_limit('FREE_PACKS_PER_TRIP')
 
-# Hiker profiles a non-subscribed user may have.
-FREE_HIKER_PROFILE_LIMIT = _free_limit('FREE_HIKER_PROFILE_LIMIT')

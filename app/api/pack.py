@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 
 from models.base import User, Pack, PackItem, Trip
 from utils.auth import authenticate
@@ -126,7 +126,6 @@ class PackItemType(BaseModel):
 class PackType(BaseModel):
     title: str
     trip_id: int = None
-    hiker_profile_id: Optional[int] = None
     items: List[PackItemType] = None
 
 
@@ -135,7 +134,7 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
     _require_own_trip(user, pack.trip_id)
     _enforce_pack_limit(user, pack.trip_id)
 
-    new_pack = Pack(title=pack.title, trip_id=pack.trip_id, hiker_profile_id=pack.hiker_profile_id, user_id=user.id)
+    new_pack = Pack(title=pack.title, trip_id=pack.trip_id, user_id=user.id)
 
     try:
         db.session.add(new_pack)
@@ -185,7 +184,6 @@ def update_pack(id: int, payload: PackType, user: User = Depends(authenticate)):
     try:
         pack.title = payload.title
         pack.trip_id = new_trip_id
-        pack.hiker_profile_id = payload.hiker_profile_id
         pack.items = [
             PackItem(pack_id=pack.id,
                      item_id=item.item_id,
