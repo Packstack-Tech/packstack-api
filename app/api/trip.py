@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, noload
 
-from models.base import User, Trip, Pack, PackItem
+from models.base import User, Trip, Pack, PackItem, Item
 from tasks.enrich_trip import enrich_trip
 from utils.ai_review import build_ai_review_markdown
+from utils.pack_summary import serialize_pack_public
 from utils.auth import authenticate
 from utils.utils import clone_model
 
@@ -75,6 +76,57 @@ def fetch_info(trip_id: str):
         "trip": trip,
         "packs": packs,
         "user": user._asdict()
+    }
+
+
+PUBLIC_TRIP_FIELDS = (
+    "id", "uuid", "title", "location", "start_date", "end_date",
+    "temp_min", "temp_max", "temp_category", "distance",
+    "daily_elevation_gain", "terrain", "pace", "notes", "published",
+)
+
+
+def _public_packs_query(trip_id: int):
+    """Packs for the public page, without the CatalogProduct join.
+
+    Item eagerly joins CatalogProduct (description, JSON specs, image url) on
+    every load. The public serializer never reads it, so skipping the join
+    trims the row width and the payload for share pages.
+    """
+    return (
+        db.session.query(Pack)
+        .filter_by(trip_id=trip_id)
+        .options(joinedload(Pack.items).joinedload(PackItem.item).noload(Item.catalog_product))
+        .order_by(Pack.id)
+    )
+
+
+@route.get("/public/{trip_id}")
+def fetch_public(trip_id: str, response: Response):
+    """Everything the public pack page needs in one round trip: trip header,
+    owner display units, and the packs in their public shape. Replaces the
+    /meta + /pack/trip/{id}/public pair so the page can render server-side
+    without a client-side fetch after hydration.
+    """
+    trip = _resolve_trip(trip_id)
+
+    user = db.session.query(User.username,
+                            User.unit_distance,
+                            User.unit_temperature,
+                            User.unit_weight).filter_by(id=trip.user_id).first()
+    if not user:
+        raise HTTPException(404, "Trip owner not found.")
+
+    packs = _public_packs_query(trip.id).all()
+
+    # Public, read-only data: let the CDN and browser hold it briefly so a
+    # burst of visitors to a shared link doesn't each hit Postgres.
+    response.headers["Cache-Control"] = "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
+
+    return {
+        "trip": {k: getattr(trip, k) for k in PUBLIC_TRIP_FIELDS},
+        "user": user._asdict(),
+        "packs": [serialize_pack_public(p) for p in packs],
     }
 
 
