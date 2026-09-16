@@ -5,6 +5,7 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 from sqlalchemy import create_engine
 
 from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
+from utils.sentry import integration_options as sentry_integration_options
 from api import user, resources, item, item_lifecycle, benchmark, trip, category, pack, kit, hiker_profile, webhook
 
 ENGINE_KWARGS = dict(
@@ -26,6 +27,7 @@ if not DEVELOPMENT:
         # Add data like request headers and IP for users,
         # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
         send_default_pii=True,
+        **sentry_integration_options(),
     )
 
 app = FastAPI()

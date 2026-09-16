@@ -3,7 +3,9 @@ requests==2.31.0
 passlib==1.7.2
 google-auth
 cryptography
-openai
+# 3.x switched to httpx2, which breaks under pydantic<2 at import time. Only
+# ai/sanitize.py uses this; the API itself never imports it.
+openai<3
 python-dotenv==1.0.0
 
 psycopg2-binary==2.9.9
