@@ -237,6 +237,7 @@ def test_full_flow(client, user):
     assert {"get_me", "list_trips", "get_trip", "search_gear", "get_item", "list_categories",
             "list_kits", "get_kit", "search_catalog", "list_hiker_profiles"} <= set(tools)
     assert tools["get_trip"]["annotations"]["readOnlyHint"] is True
+    assert all(t.get("title") for t in tools.values()), "directory submission requires a title on every tool"
     assert "trip_id" in tools["get_trip"]["inputSchema"]["properties"]
 
     r = rpc(client, access, "tools/call", {"name": "get_me", "arguments": {}})

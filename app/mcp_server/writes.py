@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False)
 WRITE_IDEMPOTENT = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 
-UPGRADE_URL = "https://app.packstack.io/settings"
+UPGRADE_URL = "https://app.packstack.io"
 UPGRADE_MESSAGE = (
     "Making changes through a connected app requires a Packstack subscription. "
     f"Reading still works. Upgrade at {UPGRADE_URL}."

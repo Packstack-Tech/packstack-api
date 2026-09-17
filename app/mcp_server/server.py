@@ -54,6 +54,36 @@ when doing arithmetic. Call get_me first to learn the user's units and subscript
 Editing requires a Packstack subscription; read access is always available."""
 
 
+TOOL_TITLES = {
+    "get_me": "Account & units",
+    "list_trips": "List trips",
+    "get_trip": "Get trip with packs",
+    "search_gear": "Search gear closet",
+    "get_item": "Get gear item",
+    "list_categories": "List categories",
+    "list_kits": "List kits",
+    "get_kit": "Get kit",
+    "search_catalog": "Search gear catalog",
+    "list_hiker_profiles": "List hiker profiles",
+    "create_trip": "Create trip",
+    "update_trip": "Update trip",
+    "clone_trip": "Clone trip",
+    "create_pack": "Create pack",
+    "rename_pack": "Rename pack",
+    "add_items_to_pack": "Add items to pack",
+    "update_pack_items": "Update pack items",
+    "remove_items_from_pack": "Remove items from pack",
+    "add_kit_to_pack": "Add kit to pack",
+    "create_item": "Add gear item",
+    "update_item": "Update gear item",
+    "archive_items": "Archive gear",
+    "restore_items": "Restore gear",
+    "log_item_lifecycle": "Log gear history",
+    "create_kit": "Create kit",
+    "update_kit": "Update kit",
+}
+
+
 # ---------------------------------------------------------------------------
 # Token verification (resource-server side)
 # ---------------------------------------------------------------------------
@@ -246,6 +276,12 @@ def build_mcp_server() -> MCPServer:
     register_read_tools(mcp)
     register_write_tools(mcp)
     register_prompts(mcp)
+
+    # Claude's connector directory requires a `title` on every tool. Derive a
+    # human-readable one from the name unless a tool set its own.
+    for tool in mcp._tool_manager.list_tools():
+        if not tool.title:
+            tool.title = TOOL_TITLES.get(tool.name) or tool.name.replace("_", " ").capitalize()
     return mcp
 
 
