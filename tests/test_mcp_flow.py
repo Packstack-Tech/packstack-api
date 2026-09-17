@@ -143,6 +143,7 @@ def test_discovery(client):
     assert a["code_challenge_methods_supported"] == ["S256"]
     p = client.get("/.well-known/oauth-protected-resource/mcp").json()
     assert p["resource"] == RESOURCE and p["authorization_servers"] == ["http://testserver"]
+    assert p["scopes_supported"] == ["packstack:read", "packstack:write"]
 
 
 def test_unauthenticated_mcp_gets_challenge(client):
@@ -150,7 +151,7 @@ def test_unauthenticated_mcp_gets_challenge(client):
     assert r.status_code == 401
     www = r.headers["www-authenticate"]
     assert 'resource_metadata="http://testserver/.well-known/oauth-protected-resource/mcp"' in www
-    assert 'scope="packstack:read"' in www
+    assert 'scope="packstack:read packstack:write"' in www
 
 
 def test_authorize_rejects_bad_redirect_without_redirecting(client):

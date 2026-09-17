@@ -108,13 +108,13 @@ def authorization_server_metadata():
 
 @route.get("/.well-known/oauth-protected-resource/mcp")
 def protected_resource_metadata():
-    """RFC 9728 for the MCP endpoint. scopes_supported is the minimum a
-    client needs; write access is granted through consent for the wider
-    scope (see spec §5)."""
+    """RFC 9728 for the MCP endpoint. Lists both scopes: clients that ignore
+    the 401 `scope` hint fall back to this list, and hosted Claude does not
+    step up from read to write later (see server.RequireAuth)."""
     return JSONResponse({
         "resource": MCP_RESOURCE_URL,
         "authorization_servers": [MCP_ISSUER],
-        "scopes_supported": [tokens.SCOPE_READ],
+        "scopes_supported": [tokens.SCOPE_READ, tokens.SCOPE_WRITE],
         "bearer_methods_supported": ["header"],
         "resource_name": "Packstack",
         "resource_documentation": MCP_DOCS_URL,

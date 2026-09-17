@@ -100,7 +100,16 @@ class RequireAuth:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         user = scope.get("user")
         if not isinstance(user, AuthenticatedUser):
-            await self._challenge(send, 401, "invalid_token", "Authentication required.", oauth_tokens.SCOPE_READ)
+            # Ask for read AND write up front. Claude.ai does not run step-up
+            # authorization on a 403 insufficient_scope from a tool call (it
+            # relays the error to the model instead — observed Sept 17, 2026),
+            # so a read-only first consent would leave hosted-Claude users
+            # unable to edit without manually reconnecting. Writes are still
+            # gated by subscription at call time, so granting the scope is
+            # harmless for free accounts. The 403 path below stays for clients
+            # that do implement step-up.
+            await self._challenge(send, 401, "invalid_token", "Authentication required.",
+                                  f"{oauth_tokens.SCOPE_READ} {oauth_tokens.SCOPE_WRITE}")
             return
         have = set(user.scopes)
         missing = [s for s in self.required_scopes if s not in have]
