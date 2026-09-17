@@ -17,6 +17,8 @@ resend==2.23.0
 stripe==2.53.0
 fastapi>=0.115,<1
 pydantic>=2.12,<3
+# MCP connector (Streamable HTTP server + auth middleware). See app/mcp_server/.
+mcp>=2.2,<3
 uvicorn[standard]
 sentry-sdk
 celery[redis]

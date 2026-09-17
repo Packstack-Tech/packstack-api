@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi_sqlalchemy import DBSessionMiddleware
 from sqlalchemy import create_engine
 
-from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST
+from utils.consts import DATABASE_URL, DEVELOPMENT, APP_HOST, MCP_ENABLED
 from utils.sentry import integration_options as sentry_integration_options
 from api import user, resources, item, item_lifecycle, benchmark, trip, category, pack, kit, hiker_profile, webhook
 
@@ -19,6 +19,9 @@ engine = create_engine(DATABASE_URL, **ENGINE_KWARGS)
 
 # if DEVELOPMENT:
 from models.base import Base
+# The OAuth tables for the MCP connector live in the API and register on the
+# shared Base when imported; import before create_all so they are created too.
+import oauth.models  # noqa: F401
 Base.metadata.create_all(engine)
 
 if not DEVELOPMENT:
@@ -130,3 +133,14 @@ app.include_router(
 @app.get("/health-check")
 def health_check():
     return "Packstack API is available"
+
+
+# --- MCP connector (OAuth authorization server + Streamable HTTP MCP endpoint).
+# Everything is off unless MCP_ENABLED is set: no discovery documents, no
+# /oauth routes, no /mcp. See claude/mcp-server-spec.md.
+if MCP_ENABLED:
+    from oauth.routes import route as oauth_route
+    from mcp_server.server import mount_mcp
+
+    app.include_router(oauth_route, tags=["oauth"])
+    mount_mcp(app)

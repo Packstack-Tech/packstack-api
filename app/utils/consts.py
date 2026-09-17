@@ -82,3 +82,30 @@ def _free_limit(name: str) -> int:
 # limit users see on the Packs tab -- that one counts Trips (FREE_TRIP_LIMIT).
 FREE_PACKS_PER_TRIP = _free_limit('FREE_PACKS_PER_TRIP')
 
+
+
+# --- MCP server / OAuth authorization server --------------------------------
+#
+# Off unless MCP_ENABLED is truthy: nothing is mounted, no discovery documents
+# are served, and the oauth_* tables are still created by create_all() (they
+# are harmless when empty). MCP_ISSUER is the OAuth issuer and the origin the
+# MCP endpoint lives on; the canonical MCP resource URI is derived from it and
+# is what every issued token is bound to (RFC 8707). Changing MCP_ISSUER after
+# launch invalidates every connected client — see claude/mcp-server-spec.md.
+
+MCP_ENABLED = os.getenv('MCP_ENABLED', '').strip().lower() in ('1', 'true', 'yes', 'on')
+MCP_ISSUER = os.getenv('MCP_ISSUER', 'https://api.packstack.io').rstrip('/')
+MCP_RESOURCE_URL = f"{MCP_ISSUER}/mcp"
+MCP_DOCS_URL = os.getenv('MCP_DOCS_URL', 'https://packstack.io/developers/mcp')
+
+# Where the authorize endpoint sends the browser for login + consent. The web
+# app renders it and calls back to POST /oauth/consent with its session cookie.
+# Defaults to the first APP_HOST origin so local compose works without config.
+_first_app_host = (APP_HOST or 'https://app.packstack.io').split(',')[0].strip().rstrip('/')
+MCP_CONSENT_URL = os.getenv('MCP_CONSENT_URL', f"{_first_app_host}/connect/authorize")
+
+MCP_ACCESS_TOKEN_TTL = int(os.getenv('MCP_ACCESS_TOKEN_TTL', 60 * 60))               # 1 h
+MCP_REFRESH_TOKEN_IDLE_TTL = int(os.getenv('MCP_REFRESH_TOKEN_IDLE_TTL', 30 * 24 * 3600))   # 30 d
+MCP_REFRESH_TOKEN_MAX_TTL = int(os.getenv('MCP_REFRESH_TOKEN_MAX_TTL', 365 * 24 * 3600))    # 1 y
+MCP_AUTH_CODE_TTL = 10 * 60
+MCP_AUTH_REQUEST_TTL = 10 * 60
