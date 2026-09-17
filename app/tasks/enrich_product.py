@@ -379,16 +379,65 @@ def _get_median_weight(session, brand_id: int, product_id: int) -> float | None:
     return statistics.median(weights_g) if weights_g else None
 
 
+# Corporate suffixes that users type inconsistently ("Durston", "Durston Gear",
+# "Durston Gear Inc.") and that never distinguish two real brands.
+_BRAND_SUFFIXES = ("gear", "inc", "llc", "ltd", "co", "company", "outdoors", "outdoor", "equipment")
+
+
+def normalize_name(value: str | None) -> str:
+    """Comparison key for brand / product / variant names.
+
+    Lowercase, punctuation and whitespace removed, so "X-Mid 1", "XMid 1" and
+    "x mid 1" collide. Leading "the" is dropped.
+    """
+    if not value:
+        return ""
+    v = value.lower().strip()
+    if v.startswith("the "):
+        v = v[4:]
+    return re.sub(r"[^a-z0-9]+", "", v)
+
+
+def normalize_brand(value: str | None) -> str:
+    v = (value or "").lower().strip()
+    words = re.sub(r"[^a-z0-9]+", " ", v).split()
+    while len(words) > 1 and words[-1] in _BRAND_SUFFIXES:
+        words.pop()
+    return "".join(words)
+
+
 def _catalog_exists(session, brand_name: str, product_name: str, variant_name: str | None) -> bool:
-    q = session.query(CatalogProduct.id).filter(
-        func.lower(CatalogProduct.brand_name) == brand_name.lower(),
-        func.lower(CatalogProduct.product_name) == product_name.lower(),
+    """True if a catalog row already covers this brand/product/variant.
+
+    Compared on normalized keys, not raw lowercase, so spelling drift between
+    what a user typed and what the AI canonicalized (hyphens, spacing, "Gear"
+    suffix) doesn't produce a second row for the same product. Postgres does
+    the brand-key match; the product/variant comparison happens in Python on
+    that (small) candidate set.
+    """
+    brand_key = normalize_brand(brand_name)
+    product_key = normalize_name(product_name)
+    variant_key = normalize_name(variant_name)
+    if not brand_key or not product_key:
+        return False
+
+    brand_sql_key = func.regexp_replace(func.lower(CatalogProduct.brand_name), r"[^a-z0-9]+", "", "g")
+    candidates = (
+        session.query(CatalogProduct.brand_name, CatalogProduct.product_name, CatalogProduct.variant_name)
+        .filter(brand_sql_key.like(f"{brand_key}%"))
+        .all()
     )
-    if variant_name:
-        q = q.filter(func.lower(CatalogProduct.variant_name) == variant_name.lower())
-    else:
-        q = q.filter(CatalogProduct.variant_name.is_(None))
-    return q.first() is not None
+    # brand_sql_key keeps suffixes ("durstongear"), the Python key strips them
+    # ("durston"); the LIKE prefix narrows, the exact brand re-check below
+    # keeps "durstonx" from matching.
+    for cand_brand, cand_product, cand_variant in candidates:
+        if normalize_brand(cand_brand) != brand_key:
+            continue
+        if normalize_name(cand_product) != product_key:
+            continue
+        if normalize_name(cand_variant) == variant_key:
+            return True
+    return False
 
 
 def _catalog_url_exists(session, product_url: str) -> bool:

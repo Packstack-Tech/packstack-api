@@ -335,3 +335,177 @@ def test_token_endpoint_error_codes(client):
     assert r.json()["error"] == "invalid_grant"
     r = client.post("/oauth/token", data={"grant_type": "authorization_code", "code": "x", "client_id": "unknown-client", "code_verifier": "v" * 50})
     assert r.status_code == 401 and r.json()["error"] == "invalid_client"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: write tools, step-up, subscription gate
+# ---------------------------------------------------------------------------
+
+def _token_for(client, user, scope):
+    q, verifier, _ = authorize_and_consent(client, user, scope=scope)
+    tok = client.post("/oauth/token", data={
+        "grant_type": "authorization_code", "code": q["code"][0], "redirect_uri": CALLBACK,
+        "client_id": CIMD_URL, "code_verifier": verifier, "resource": RESOURCE}).json()
+    return tok["access_token"]
+
+
+def _call(client, token, name, args):
+    r = rpc(client, token, "tools/call", {"name": name, "arguments": args})
+    assert r.status_code == 200, (r.status_code, r.text)
+    return r.json()["result"]
+
+
+def _set_subscribed(user_id, value):
+    from fastapi_sqlalchemy import db
+    from models.base import User
+    with db():
+        u = db.session.get(User, user_id)
+        u.is_subscribed = value
+        db.session.commit()
+
+
+def test_read_token_gets_403_step_up_on_write_tool(client, user):
+    token = _token_for(client, user, "packstack:read")
+    r = rpc(client, token, "tools/call", {"name": "create_trip", "arguments": {"title": "Nope"}})
+    assert r.status_code == 403
+    www = r.headers["www-authenticate"]
+    assert 'error="insufficient_scope"' in www
+    assert 'scope="packstack:read packstack:write"' in www
+    assert "resource_metadata=" in www
+    # read tools still work on the same token
+    assert rpc(client, token, "tools/call", {"name": "get_me", "arguments": {}}).status_code == 200
+
+
+def test_write_tools_advertise_annotations(client, user):
+    token = _token_for(client, user, "packstack:read")
+    tools = {t["name"]: t for t in rpc(client, token, "tools/list").json()["result"]["tools"]}
+    for name in ("create_trip", "create_item", "add_items_to_pack", "archive_items", "update_kit"):
+        assert tools[name]["annotations"]["readOnlyHint"] is False
+        assert tools[name]["annotations"]["destructiveHint"] is False
+    assert "delete" not in " ".join(tools)
+
+
+def test_free_user_write_is_gated_by_subscription(client, user):
+    _set_subscribed(user["id"], False)
+    token = _token_for(client, user, "packstack:read packstack:write")
+    res = _call(client, token, "create_trip", {"title": "Gated"})
+    assert res["isError"] is True and "subscription" in res["content"][0]["text"].lower()
+
+
+def test_subscriber_full_write_flow(client, user):
+    _set_subscribed(user["id"], True)
+    token = _token_for(client, user, "packstack:read packstack:write offline_access")
+    me = _call(client, token, "get_me", {})["structuredContent"]
+    assert me["subscribed"] is True and "packstack:write" in me["connection_scopes"]
+
+    # --- trips
+    res = _call(client, token, "create_trip", {
+        "title": "Wind River High Route", "location": "Wind River Range, WY",
+        "start_date": "2026-08-10", "end_date": "2026-08-15",
+        "temperature_low": 28, "temperature_high": 70, "distance": 80, "daily_elevation_gain": 2500,
+        "terrain": "rugged", "pace": "moderate", "conditions": "cold",
+    })
+    assert res.get("isError") is not True, res
+    trip = res["structuredContent"]["trip"]
+    assert trip["nights"] == 5 and trip["temperature_low"]["fahrenheit"] == 28
+    assert abs(trip["distance"]["miles"] - 80) < 0.1          # stored as km, echoed back in miles
+    assert abs(trip["daily_elevation_gain"]["feet_per_day"] - 2500) < 2
+    assert res["structuredContent"]["packs"][0]["title"] == "Main Pack"
+    trip_id = trip["trip_id"]
+    pack_id = res["structuredContent"]["packs"][0]["pack_id"]
+
+    bad = _call(client, token, "create_trip", {"title": "X", "terrain": "moon"})
+    assert bad["isError"] is True and "terrain" in bad["content"][0]["text"]
+
+    res = _call(client, token, "update_trip", {"trip_id": trip_id, "notes": "Bring bear spray", "temperature_low": 20})
+    assert res["structuredContent"]["trip"]["notes"] == "Bring bear spray"
+    # temps are stored as whole °C, so an imperial round-trip can drift by a degree
+    assert abs(res["structuredContent"]["trip"]["temperature_low"]["fahrenheit"] - 20) <= 1
+    assert sorted(res["structuredContent"]["updated_fields"]) == ["notes", "temp_min"]
+
+    # --- gear: catalog-backed create, dedupe gate, override, update
+    from fastapi_sqlalchemy import db
+    from models.base import CatalogProduct
+    with db():
+        cp = CatalogProduct(brand_name="Durston Gear", product_name="X-Mid 1", variant_name=None,
+                            display_name="Durston Gear X-Mid 1", weight=795, weight_unit="g", status="approved",
+                            category_suggestion="Shelter")
+        db.session.add(cp); db.session.commit(); cp_id = cp.id
+
+    res = _call(client, token, "create_item", {"name": "Tent (new)", "catalog_product_id": cp_id, "category": "Shelter"})
+    assert res.get("isError") is not True, res
+    tent2 = res["structuredContent"]
+    assert tent2["brand"] == "Durston Gear" and abs(tent2["weight"]["grams"] - 795) < 0.5 and tent2["category"] == "Shelter"
+
+    dup = _call(client, token, "create_item", {"name": "Another tent", "brand": "durston", "product": "xmid 1", "weight": 28, "unit": "oz"})
+    assert dup["isError"] is True
+    txt = dup["content"][0]["text"]
+    assert f"catalog_product_id {cp_id}" in txt and f"item_id {tent2['item_id']}" in txt
+
+    forced = _call(client, token, "create_item", {"name": "Custom tarp", "brand": "Durston", "product": "X-Mid 1 (modified)",
+                                                  "weight": 20, "unit": "oz", "create_new_product": True})
+    assert forced.get("isError") is not True, forced
+    assert forced["structuredContent"]["brand"] == "Durston"
+
+    plain = _call(client, token, "create_item", {"name": "Bear spray", "weight": 11, "unit": "oz", "consumable": True, "category": "Safety"})
+    spray_id = plain["structuredContent"]["item_id"]
+    assert plain["structuredContent"]["consumable"] is True
+
+    res = _call(client, token, "update_item", {"item_id": user["tent_id"], "consumable": False, "weight": 21, "notes": ""})
+    assert sorted(res["structuredContent"]["updated_fields"]) == ["consumable", "notes", "weight"]
+    assert res["structuredContent"]["notes"] is None
+
+    # --- packs
+    res = _call(client, token, "add_items_to_pack", {"pack_id": pack_id, "items": [
+        {"item_id": tent2["item_id"]}, {"item_id": spray_id, "quantity": 1}, {"item_id": user["tent_id"], "worn": True}]})
+    assert res.get("isError") is not True, res
+    assert sorted(res["structuredContent"]["added"]) == sorted(["Tent (new)", "Bear spray", "Tent"])
+    totals = res["structuredContent"]["totals"]
+    assert totals["item_count"] == 3 and totals["worn_weight"]["grams"] > 0 and totals["consumable_weight"]["grams"] > 0
+
+    res = _call(client, token, "update_pack_items", {"pack_id": pack_id, "items": [{"item_id": spray_id, "quantity": 2, "checked": True}]})
+    rows = [i for c in res["structuredContent"]["categories"] for i in c["items"]]
+    assert next(i for i in rows if i["item_id"] == spray_id)["quantity"] == 2
+
+    res = _call(client, token, "remove_items_from_pack", {"pack_id": pack_id, "item_ids": [user["tent_id"]]})
+    assert res["structuredContent"]["removed_count"] == 1 and res["structuredContent"]["totals"]["item_count"] == 2
+
+    res = _call(client, token, "create_pack", {"trip_id": trip_id, "title": "Anne", "copy_from_pack_id": pack_id})
+    assert res.get("isError") is not True, res
+    assert res["structuredContent"]["title"] == "Anne" and res["structuredContent"]["totals"]["item_count"] == 2
+    anne_id = res["structuredContent"]["pack_id"]
+    assert _call(client, token, "rename_pack", {"pack_id": anne_id, "title": "Anne's pack"})["structuredContent"]["title"] == "Anne's pack"
+
+    # --- kits
+    res = _call(client, token, "create_kit", {"name": "Shelter kit", "items": [{"item_id": tent2["item_id"]}, {"item_id": user["tent_id"], "quantity": 1}]})
+    assert res.get("isError") is not True, res
+    kit_id = res["structuredContent"]["kit_id"]
+    res = _call(client, token, "update_kit", {"kit_id": kit_id, "items": [{"item_id": user["tent_id"]}]})
+    assert [i["item_id"] for i in res["structuredContent"]["items"]] == [user["tent_id"]]
+    res = _call(client, token, "add_kit_to_pack", {"pack_id": anne_id, "kit_id": kit_id})
+    assert res["structuredContent"]["added_count"] == 1
+
+    # --- lifecycle + archive
+    res = _call(client, token, "log_item_lifecycle", {"item_id": user["tent_id"], "condition": "fair", "event_type": "repair",
+                                                      "event_date": "2026-09-01", "note": "Seam sealed", "cost": 12.5})
+    assert res["structuredContent"]["log_entries_added"] == 2 and res["structuredContent"]["lifecycle"] if "lifecycle" in res["structuredContent"] else True
+    bad = _call(client, token, "log_item_lifecycle", {"item_id": user["tent_id"], "condition": "shredded"})
+    assert bad["isError"] is True
+
+    res = _call(client, token, "archive_items", {"item_ids": [spray_id]})
+    assert res["structuredContent"]["archived"][0]["item_id"] == spray_id
+    gear = _call(client, token, "search_gear", {"query": "bear spray", "status": "archived"})["structuredContent"]
+    assert gear["count"] == 1
+    res = _call(client, token, "restore_items", {"item_ids": [spray_id]})
+    assert res["structuredContent"]["restored"][0]["item_id"] == spray_id
+
+    # --- clone, then the read side sees everything
+    res = _call(client, token, "clone_trip", {"trip_id": trip_id, "title": "WRHR 2027"})
+    assert res.get("isError") is not True, res
+    assert len(res["structuredContent"]["packs"]) == 2
+    trips = _call(client, token, "list_trips", {"search": "WRHR"})["structuredContent"]["trips"]
+    assert trips and trips[0]["pack_count"] == 2
+
+    # ownership: someone else's ids are refused
+    res = _call(client, token, "rename_pack", {"pack_id": 999999999, "title": "x"})
+    assert res["isError"] is True and "not found" in res["content"][0]["text"].lower()

@@ -37,6 +37,7 @@ from starlette.types import Receive, Scope, Send
 from mcp_server.context import run_sync
 from mcp_server.prompts import register_prompts
 from mcp_server.tools import register_read_tools
+from mcp_server.writes import WRITE_TOOL_NAMES, register_write_tools
 from oauth import tokens as oauth_tokens
 from utils.consts import MCP_DOCS_URL, MCP_ISSUER, MCP_RESOURCE_URL
 
@@ -86,13 +87,15 @@ class RequireAuth:
 
     `write_tools` is consulted for tools/call requests so a read-only token
     calling a write tool gets an HTTP 403 with the scope it needs — the signal
-    MCP clients use to run step-up authorization. Empty in Phase 1.
+    MCP clients use to run step-up authorization (spec §5).
     """
 
     def __init__(self, app, required_scopes: list[str], write_tools: frozenset[str] = frozenset()):
         self.app = app
         self.required_scopes = required_scopes
         self.write_tools = write_tools
+
+    # Body inspection needs the JSON-RPC request; batched arrays are handled too.
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         user = scope.get("user")
@@ -232,6 +235,7 @@ def build_mcp_server() -> MCPServer:
         ),
     )
     register_read_tools(mcp)
+    register_write_tools(mcp)
     register_prompts(mcp)
     return mcp
 
@@ -254,7 +258,7 @@ def mount_mcp(app: FastAPI) -> None:
 
     asgi = StreamableHTTPASGIApp(session_manager)
     asgi = ToolCallLogger(asgi)
-    asgi = RequireAuth(asgi, required_scopes=[oauth_tokens.SCOPE_READ])
+    asgi = RequireAuth(asgi, required_scopes=[oauth_tokens.SCOPE_READ], write_tools=frozenset(WRITE_TOOL_NAMES))
     asgi = AuthContextMiddleware(asgi)
     asgi = AuthenticationMiddleware(
         asgi,

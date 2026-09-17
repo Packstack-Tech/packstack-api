@@ -100,9 +100,19 @@ MCP_DOCS_URL = os.getenv('MCP_DOCS_URL', 'https://packstack.io/developers/mcp')
 
 # Where the authorize endpoint sends the browser for login + consent. The web
 # app renders it and calls back to POST /oauth/consent with its session cookie.
-# Defaults to the first APP_HOST origin so local compose works without config.
-_first_app_host = (APP_HOST or 'https://app.packstack.io').split(',')[0].strip().rstrip('/')
-MCP_CONSENT_URL = os.getenv('MCP_CONSENT_URL', f"{_first_app_host}/connect/authorize")
+# Set MCP_CONSENT_URL explicitly in production. The fallback picks the first
+# https origin in APP_HOST (a CORS list whose order is otherwise meaningless,
+# and which in production starts with a localhost dev origin), then the first
+# entry of any kind so local compose works without config.
+def _default_consent_origin() -> str:
+    origins = [o.strip().rstrip('/') for o in (APP_HOST or '').split(',') if o.strip()]
+    for o in origins:
+        if o.startswith('https://'):
+            return o
+    return origins[0] if origins else 'https://app.packstack.io'
+
+
+MCP_CONSENT_URL = os.getenv('MCP_CONSENT_URL', f"{_default_consent_origin()}/connect/authorize")
 
 MCP_ACCESS_TOKEN_TTL = int(os.getenv('MCP_ACCESS_TOKEN_TTL', 60 * 60))               # 1 h
 MCP_REFRESH_TOKEN_IDLE_TTL = int(os.getenv('MCP_REFRESH_TOKEN_IDLE_TTL', 30 * 24 * 3600))   # 30 d
