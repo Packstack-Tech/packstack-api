@@ -24,7 +24,7 @@ def _enforce_kit_limit(user: User):
 
     if kit_count >= FREE_KIT_LIMIT:
         raise HTTPException(
-            402, "Upgrade to create more than one kit.")
+            402, "Free accounts include one kit. Upgrade to Pro for unlimited.")
 
 
 class KitItemType(BaseModel):

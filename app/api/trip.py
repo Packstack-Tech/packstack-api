@@ -34,7 +34,7 @@ def _enforce_trip_limit(user: User):
 
     if active_trips >= FREE_TRIP_LIMIT:
         raise HTTPException(
-            402, "Upgrade to create more than three packs.")
+            402, "Free accounts include three gear lists. Upgrade to Pro for unlimited.")
 
 
 @route.get("")

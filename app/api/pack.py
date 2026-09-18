@@ -35,7 +35,7 @@ def _enforce_pack_limit(user: User, trip_id: int | None):
 
     if pack_count >= FREE_PACKS_PER_TRIP:
         raise HTTPException(
-            402, "Upgrade to add more packs to this trip.")
+            402, "Free accounts include one pack per trip. Upgrade to Pro to add more.")
 
 
 def _require_own_trip(user: User, trip_id: int | None):
