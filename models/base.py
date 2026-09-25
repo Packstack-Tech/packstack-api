@@ -186,6 +186,19 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("user.id"))
     name = Column(String(50))
+    # Set on a user's own category that replaces a shared one (a rename of the
+    # shared category, or a merge of it into this one). That shared category is
+    # then no longer suggested to the user.
+    forked_from_id = Column(Integer, ForeignKey("category.id"))
+
+    # Names are unique case-insensitively among shared categories, and within
+    # each user's own. See api/migrations/category_management.sql.
+    __table_args__ = (
+        Index("uq_category_shared_name", func.lower(name), unique=True,
+              postgresql_where=user_id.is_(None)),
+        Index("uq_category_user_name", user_id, func.lower(name), unique=True,
+              postgresql_where=user_id.isnot(None)),
+    )
 
 
 class ItemCategory(Base):
@@ -193,6 +206,10 @@ class ItemCategory(Base):
     user_id = Column(Integer, ForeignKey('user.id'))
     category_id = Column(Integer, ForeignKey('category.id'))
     sort_order = Column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "category_id", name="uq_itemcategory_user_category"),
+    )
 
     category = relationship("Category", lazy="joined", uselist=False)
 

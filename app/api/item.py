@@ -270,8 +270,14 @@ class SortItems(RootModel[List[ItemOrder]]):
 
 @route.put("/sort")
 def sort_items(items: SortItems, user: User = Depends(authenticate)):
-    item_mappings = [dict(id=item.id, user_id=user.id, sort_order=item.sort_order)
-                     for item in items]
+    # Only the caller's rows, and never write user_id: bulk_update_mappings
+    # updates by primary key alone, so the old mapping (which set
+    # user_id=user.id on whatever ids were sent) handed other users' rows
+    # to the caller.
+    requested = {item.id: item.sort_order for item in items}
+    owned = {r[0] for r in db.session.query(Item.id).filter(
+        Item.id.in_(list(requested)), Item.user_id == user.id)}
+    item_mappings = [dict(id=i, sort_order=requested[i]) for i in owned]
 
     try:
         db.session.bulk_update_mappings(Item, item_mappings)
@@ -286,8 +292,11 @@ def sort_items(items: SortItems, user: User = Depends(authenticate)):
 
 @route.put("/category/sort")
 def sort_categories(categories: SortItems, user: User = Depends(authenticate)):
-    item_category_mappings = [dict(id=category.id, user_id=user.id, sort_order=category.sort_order)
-                              for category in categories]
+    # See sort_items: only the caller's rows, and never write user_id.
+    requested = {category.id: category.sort_order for category in categories}
+    owned = {r[0] for r in db.session.query(ItemCategory.id).filter(
+        ItemCategory.id.in_(list(requested)), ItemCategory.user_id == user.id)}
+    item_category_mappings = [dict(id=i, sort_order=requested[i]) for i in owned]
 
     try:
         db.session.bulk_update_mappings(ItemCategory, item_category_mappings)
