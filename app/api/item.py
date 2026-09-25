@@ -13,7 +13,9 @@ from models.base import User, Item, ItemLog, ItemCategory, Category, Brand, Prod
 from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
-from utils.entity_helpers import resolve_item_fields, resolve_import_category
+from utils.entity_helpers import (
+    resolve_item_fields, resolve_import_category, resolve_brand, resolve_product, clean_name,
+)
 from tasks.enrich_product import enrich_product
 
 logger = logging.getLogger(__name__)
@@ -539,41 +541,28 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         else:
             price = None
 
+        # Same resolvers as the item form / MCP: cleaned names, case-insensitive
+        # match. The import used to build Brand/Product rows directly, which
+        # let trailing spaces and ™/® through and created duplicates.
         brand_id = None
-        if brand:
-            brand_entity = db.session.query(
-                Brand.id).filter(func.lower(Brand.name) == brand.lower()).first()
-
-            if brand_entity:
-                brand_id = brand_entity[0]
-            else:
-                new_brand = Brand(name=brand)
-                try:
-                    db.session.add(new_brand)
-                    db.session.commit()
-                    db.session.refresh(new_brand)
-                    brand_id = new_brand.id
-                except Exception:
-                    brand_id = None
-                    db.session.rollback()
+        if brand and clean_name(brand):
+            try:
+                brand_id = resolve_brand(db.session, brand)
+                db.session.commit()
+            except Exception:
+                logger.exception("CSV import: could not resolve brand %r", brand)
+                brand_id = None
+                db.session.rollback()
 
         product_id = None
-        if brand_id and product:
-            product_entity = db.session.query(Product.id).filter(
-                func.lower(Product.name) == product.lower(), Product.brand_id == brand_id).first()
-
-            if product_entity:
-                product_id = product_entity[0]
-            else:
-                new_product = Product(brand_id=brand_id, name=product)
-                try:
-                    db.session.add(new_product)
-                    db.session.commit()
-                    db.session.refresh(new_product)
-                    product_id = new_product.id
-                except Exception:
-                    product_id = None
-                    db.session.rollback()
+        if brand_id and product and clean_name(product):
+            try:
+                product_id = resolve_product(db.session, product, brand_id)
+                db.session.commit()
+            except Exception:
+                logger.exception("CSV import: could not resolve product %r", product)
+                product_id = None
+                db.session.rollback()
 
         category_id = None
         if category:

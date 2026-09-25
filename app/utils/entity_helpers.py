@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Optional
 
 from sqlalchemy import func, or_
@@ -11,8 +12,21 @@ from utils.item_category import resolve_category, resolve_import_category  # noq
 logger = logging.getLogger(__name__)
 
 
+_NAME_SYMBOLS = re.compile(r"[™®©]")
+
+
+def clean_name(value: str | None) -> str:
+    """Normalize user-entered brand / product / variant text before it is
+    stored: strip, collapse internal whitespace, drop ™ ® ©. These are the
+    variations the catalog dedupe pass had to clean up after the fact."""
+    if not value:
+        return ""
+    v = _NAME_SYMBOLS.sub("", value)
+    return re.sub(r"\s+", " ", v).strip()
+
+
 def resolve_brand(session: Session, brand_name: str) -> int:
-    name = brand_name.strip()
+    name = clean_name(brand_name)
     existing = session.query(Brand).filter(
         func.lower(Brand.name) == name.lower()).first()
     if existing:
@@ -25,7 +39,7 @@ def resolve_brand(session: Session, brand_name: str) -> int:
 
 
 def resolve_product(session: Session, product_name: str, brand_id: int) -> int:
-    name = product_name.strip()
+    name = clean_name(product_name)
     existing = session.query(Product).filter(
         func.lower(Product.name) == name.lower(),
         Product.brand_id == brand_id).first()
@@ -39,7 +53,7 @@ def resolve_product(session: Session, product_name: str, brand_id: int) -> int:
 
 
 def resolve_product_variant(session: Session, variant_name: str, product_id: int) -> int:
-    name = variant_name.strip()
+    name = clean_name(variant_name)
     existing = session.query(ProductVariant).filter(
         func.lower(ProductVariant.name) == name.lower(),
         ProductVariant.product_id == product_id).first()
