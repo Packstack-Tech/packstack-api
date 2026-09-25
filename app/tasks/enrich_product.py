@@ -127,7 +127,7 @@ def ai_complete(system: str, user: str, tools: list | None = None, max_retries: 
 
 CATEGORIES = [
     "Clothing", "Cookware", "Miscellaneous", "Sleep System", "Electronics",
-    "Pack", "Shelter", "Toiletries", "Water System", "Food", "Footware",
+    "Pack", "Shelter", "Toiletries", "Water System", "Food", "Footwear",
     "Tools", "First Aid", "Safety", "Camera", "Climbing",
 ]
 
@@ -163,7 +163,7 @@ SUBCATEGORIES = {
     "Food": [
         "Meal", "Snack", "Beverage", "Storage", "Hanging",
     ],
-    "Footware": [
+    "Footwear": [
         "Primary", "Camp Shoe", "Gaiter", "Traction",
     ],
     "Tools": [
@@ -656,6 +656,7 @@ def enrich_product(self, brand_id: int, product_id: int, product_variant_id: int
             Item.product_id == product.id,
             variant_filter,
             Item.catalog_product_id.is_(None),
+            Item.catalog_locked.is_(False),
         ).update({"catalog_product_id": entry.id}, synchronize_session=False)
         if linked:
             session.commit()

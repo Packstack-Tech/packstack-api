@@ -134,6 +134,11 @@ class Item(Base):
     product_variant_id = Column(Integer, ForeignKey("productvariant.id"))
     category_id = Column(Integer, ForeignKey("itemcategory.id"))
     catalog_product_id = Column(Integer, ForeignKey("catalogproduct.id"))
+    # True once the user has detached (or explicitly chosen) a catalog
+    # product. Enrichment and the update path must not auto-link a
+    # locked item.
+    catalog_locked = Column(Boolean, default=False, nullable=False,
+                            server_default="false")
     sort_order = Column(Integer, default=0)
     removed = Column(Boolean, default=False)
     deleted = Column(Boolean, default=False)

@@ -62,16 +62,23 @@ class ItemType(BaseModel):
 
 
 def _find_catalog_product(session, brand_id: int, product_id: int, product_variant_id: int | None):
-    q = session.query(CatalogProduct).filter(
+    """Catalog row for this brand/product/variant.
+
+    Exact variant match first. If the user's variant has no catalog row,
+    fall back to the variant-less base row (never to a *different* named
+    variant — that is how "Large" ended up displaying as "Regular").
+    """
+    base = session.query(CatalogProduct).filter(
         CatalogProduct.brand_id == brand_id,
         CatalogProduct.product_id == product_id,
         CatalogProduct.status == "approved",
     )
     if product_variant_id:
-        q = q.filter(CatalogProduct.product_variant_id == product_variant_id)
-    else:
-        q = q.filter(CatalogProduct.product_variant_id.is_(None))
-    return q.first()
+        exact = base.filter(
+            CatalogProduct.product_variant_id == product_variant_id).first()
+        if exact:
+            return exact
+    return base.filter(CatalogProduct.product_variant_id.is_(None)).first()
 
 
 @route.post("", status_code=201)
@@ -143,9 +150,24 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
 
     old_condition = item.condition
     old_acquired_date = item.acquired_date
+    old_identity = (item.brand_id, item.product_id, item.product_variant_id)
 
     for key, value in fields.items():
         setattr(item, key, value)
+
+    # The catalog link is derived from brand/product/variant. If any of
+    # those changed, re-derive it so a stale pairing can't survive an edit
+    # (e.g. user switches "Regular" -> "Large" and keeps seeing Regular).
+    # A locked item (user detached or explicitly chose) is left alone.
+    new_identity = (item.brand_id, item.product_id, item.product_variant_id)
+    identity_changed = new_identity != old_identity
+    if identity_changed and not item.catalog_locked:
+        match = None
+        if item.brand_id and item.product_id:
+            match = _find_catalog_product(
+                db.session, item.brand_id, item.product_id,
+                item.product_variant_id)
+        item.catalog_product_id = match.id if match else None
 
     try:
         if payload.condition and payload.condition != old_condition:
@@ -175,6 +197,62 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
         logger.exception("Failed to update item")
         raise HTTPException(400, "Unable to update item.")
 
+    if (identity_changed and not item.catalog_locked
+            and item.brand_id and item.product_id
+            and item.catalog_product_id is None):
+        enrich_product.delay(
+            item.brand_id, item.product_id, item.product_variant_id)
+
+    return item
+
+
+@route.delete("/{item_id}/catalog")
+def detach_catalog(item_id: int, user: User = Depends(authenticate)):
+    """Detach the auto-assigned catalog product from an item and lock it so
+    neither enrichment nor future edits re-attach one. The user's own
+    name / weight / url are untouched — only the manufacturer-spec link goes."""
+    item = db.session.query(Item).filter_by(
+        id=item_id, user_id=user.id).first()
+    if not item:
+        raise HTTPException(404, "Item not found.")
+
+    item.catalog_product_id = None
+    item.catalog_locked = True
+    try:
+        db.session.commit()
+        db.session.refresh(item)
+    except Exception:
+        logger.exception("Failed to detach catalog product")
+        raise HTTPException(400, "Unable to detach catalog product.")
+    return item
+
+
+class CatalogAttach(BaseModel):
+    catalog_product_id: int
+
+
+@route.put("/{item_id}/catalog")
+def attach_catalog(item_id: int, payload: CatalogAttach,
+                   user: User = Depends(authenticate)):
+    """Explicitly pair an item with a catalog product. Locks the item so the
+    user's choice is not overridden by auto-matching."""
+    item = db.session.query(Item).filter_by(
+        id=item_id, user_id=user.id).first()
+    if not item:
+        raise HTTPException(404, "Item not found.")
+    cp = db.session.query(CatalogProduct).filter_by(
+        id=payload.catalog_product_id, status="approved").first()
+    if not cp:
+        raise HTTPException(404, "Catalog product not found.")
+
+    item.catalog_product_id = cp.id
+    item.catalog_locked = True
+    try:
+        db.session.commit()
+        db.session.refresh(item)
+    except Exception:
+        logger.exception("Failed to attach catalog product")
+        raise HTTPException(400, "Unable to attach catalog product.")
     return item
 
 

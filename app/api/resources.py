@@ -1,4 +1,3 @@
-import csv
 import logging
 import re
 from collections import defaultdict
@@ -10,14 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from sqlalchemy import case, func, or_
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
-from models.base import Brand, CatalogProduct, Product, User, Category, ProductVariant
+from models.base import Brand, CatalogProduct, Product, User, ProductVariant
 from utils.auth import authenticate
-from utils.consts import DEVELOPMENT
 from utils.weight import convert_weight
-from seed.categories import default_categories
 
 logger = logging.getLogger(__name__)
 
@@ -375,32 +371,3 @@ def search_brands(query: str, user: User = Depends(authenticate)):
         search), Brand.removed.is_(False)).limit(10).all()
 
     return brands
-
-
-@route.get("/seed")
-def seed_data():
-    if not DEVELOPMENT:
-        raise HTTPException(403, "Seed endpoint is only available in development.")
-
-    with open('app/seed/brands.csv', newline='') as csvfile:
-        reader = csv.reader(csvfile)
-        for row in reader:
-            brand = Brand(name=row[0])
-            try:
-                db.session.add(brand)
-                db.session.commit()
-            except IntegrityError:
-                db.session.rollback()
-
-    for category in default_categories():
-        cat = db.session.query(Category).filter_by(name=category).first()
-        if not cat:
-            seed_category = Category(name=category)
-            try:
-                db.session.add(seed_category)
-                db.session.commit()
-            except Exception:
-                logger.exception("Failed to seed category: %s", category)
-                db.session.rollback()
-
-    return

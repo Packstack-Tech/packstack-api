@@ -8,7 +8,7 @@ DEFAULT_BENCHMARKS = {
     "Shelter":       {"lifespan_years": 5,  "expected_nights": 300},
     "Pack":          {"lifespan_years": 4,  "expected_nights": 250},
     "Sleep System":  {"lifespan_years": 6,  "expected_nights": 400},
-    "Footware":      {"lifespan_years": 1,  "expected_nights": 60,  "expected_distance": 500, "distance_unit": "mi"},
+    "Footwear":      {"lifespan_years": 1,  "expected_nights": 60,  "expected_distance": 500, "distance_unit": "mi"},
     "Clothing":      {"lifespan_years": 3,  "expected_nights": 200},
     "Cookware":      {"lifespan_years": 10, "expected_nights": 800},
     "Electronics":   {"lifespan_years": 5,  "expected_nights": 500},
@@ -21,6 +21,11 @@ DEFAULT_BENCHMARKS = {
     "Toiletries":    {"lifespan_years": 1,  "expected_nights": 50},
     "Miscellaneous": {"lifespan_years": 5,  "expected_nights": 300},
 }
+
+# Old shared-category names still resolving to their current defaults. "Footware"
+# was a typo in the old seed list, renamed in Sept 2026 (api/migrations/rename_footwear.sql); keep
+# until that migration has run in every environment.
+_LEGACY_CATEGORY_NAMES = {"Footware": "Footwear"}
 
 _BENCHMARK_FIELDS = ("lifespan_years", "expected_nights", "expected_distance", "distance_unit")
 
@@ -41,8 +46,9 @@ def _apply_override(merged: dict, override, fields=_BENCHMARK_FIELDS) -> dict:
 
 
 def get_benchmark(session, user_id: int, category_name: str) -> dict:
-    is_known = category_name in DEFAULT_BENCHMARKS
-    defaults = DEFAULT_BENCHMARKS.get(category_name, DEFAULT_BENCHMARKS["Miscellaneous"])
+    default_key = _LEGACY_CATEGORY_NAMES.get(category_name, category_name)
+    is_known = default_key in DEFAULT_BENCHMARKS
+    defaults = DEFAULT_BENCHMARKS.get(default_key, DEFAULT_BENCHMARKS["Miscellaneous"])
 
     override = session.query(CategoryBenchmark).filter_by(
         user_id=user_id, category_name=category_name

@@ -15,7 +15,6 @@ To verify the service is running, go to `http://localhost/health-check` and you 
 ## Notes
 
 - FastAPI automatically generates [Swagger Docs](http://localhost/docs) for reference
-- Hit `GET /resources/seed` to seed Brands and Categories with initial data
 - Third-party services, like email, are disabled in local development
 - There are currently endpoints that aren't in use and hitting them may yield unexpected results
 - The frontend app, which is run separately, [can be found here](https://github.com/Packstack-Tech/app)
