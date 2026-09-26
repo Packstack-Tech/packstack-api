@@ -93,6 +93,7 @@ def catalog_search(
     q: str = "",
     brand: Optional[str] = Query(None),
     product: Optional[str] = Query(None),
+    v: int = Query(1, description="Response shape version; 2 = product with variants"),
 ):
     base = db.session.query(CatalogProduct).filter(
         CatalogProduct.status == "approved")
@@ -102,7 +103,9 @@ def catalog_search(
         # by normalized key so spelling differences in the legacy Product
         # name still find the catalog row.
         cp = resolve_product(db.session, brand, product)
-        return serialize_product(cp) if cp else None
+        if v >= 2:
+            return serialize_product(cp) if cp else None
+        return _legacy_entries(serialize_product(cp)) if cp else []
 
     if brand is not None:
         query = base.filter(CatalogProduct.brand_name == brand)
@@ -192,8 +195,46 @@ def _serialize_products(entries, compact: bool = False):
     return [serialize_product(e, compact=compact) for e in entries]
 
 
+# ── Legacy shapes (v1) for clients built before the variants pivot ──────────
+# Installed mobile builds expect a flat list of "entries" where the base
+# product is an entry with variant_name=None and each variant is another
+# entry. Keep serving that until every client asks for v=2.
+
+def _legacy_entry(p: dict, v: dict | None) -> dict:
+    weight = (v["weight"] if v and v["has_weight"] else p["weight"])
+    unit = (v["weight_unit"] if v and v["has_weight"] else p["weight_unit"])
+    return {
+        "id": p["id"],
+        "brand_id": p["brand_id"],
+        "product_id": p["product_id"],
+        "product_variant_id": None,
+        "variant_name": v["name"] if v else None,
+        "weight": weight,
+        "weight_unit": unit,
+        "kcal": (v["kcal"] if v else p["kcal"]),
+        "product_url": p["product_url"],
+        "category_suggestion": p["category"],
+        "display_name": p["display_name"],
+        "image_url": (v["image_url"] if v else p["image_url"]),
+        "description": p.get("description"),
+        "additional_specs": p.get("additional_specs"),
+    }
+
+
+def _legacy_entries(p: dict) -> list[dict]:
+    return [_legacy_entry(p, None)] + [_legacy_entry(p, v) for v in p["variants"] if v["has_weight"]]
+
+
+def _legacy_gear_product(p: dict) -> dict:
+    out = {k: p[k] for k in ("brand_name", "product_name", "product_url", "catalog_url_slug",
+                              "image_url", "category", "subcategory", "lightest_weight_g")}
+    out["subcategory_slug"] = _slugify(p["subcategory"]) if p["subcategory"] else None
+    out["variants"] = _legacy_entries(p)
+    return out
+
+
 @route.get("/catalog/browse/{slug}")
-def catalog_browse(slug: str):
+def catalog_browse(slug: str, v: int = Query(1)):
     # Build slug -> subcategory name lookup from live data
     distinct = (
         db.session.query(CatalogProduct.subcategory)
@@ -223,6 +264,8 @@ def catalog_browse(slug: str):
     category_name = entries[0].category_suggestion if entries else None
 
     products = _serialize_products(entries)
+    if v < 2:
+        products = [_legacy_gear_product(p) for p in products]
     products.sort(key=lambda p: (
         p["lightest_weight_g"] is None,
         p["lightest_weight_g"] or 0,
@@ -241,7 +284,7 @@ MAX_GEAR_SEARCH_PRODUCTS = 50
 
 
 @route.get("/catalog/products/search")
-def catalog_product_search(q: str = "", compact: bool = False):
+def catalog_product_search(q: str = "", compact: bool = False, v: int = Query(1)):
     """Freeform gear search across brand, product and subcategory names.
 
     Subcategory is searched so generic queries ("sleeping pad", "quilt") return
@@ -280,7 +323,10 @@ def catalog_product_search(q: str = "", compact: bool = False):
         .all()
     )
 
-    return _serialize_products(entries, compact=compact)
+    products = _serialize_products(entries, compact=compact)
+    if v < 2:
+        return [_legacy_gear_product(p) for p in products]
+    return products
 
 
 @route.get("/brand/search/{query}")
