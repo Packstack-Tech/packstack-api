@@ -16,7 +16,7 @@ from fastapi_sqlalchemy import db
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from sqlalchemy import func, or_
-from sqlalchemy.orm import joinedload, noload
+from sqlalchemy.orm import selectinload, joinedload, noload
 
 from models.base import (
     CatalogProduct, HikerProfile, Item, ItemCategory, Kit, Pack, PackItem, Trip, User,
@@ -444,8 +444,10 @@ def register_read_tools(mcp: MCPServer) -> None:
             "verified weights) — not the user's own gear. Use it to suggest lighter alternatives, "
             "check a product's weight, or find a catalog_product_id to attach when creating gear. "
             "`query` matches brand, product or category words (e.g. 'sleeping pad', 'Durston', "
-            "'Nemo Tensor'). Returns up to `limit` products (default 25, max 100) with weight in grams "
-            "and the user's unit, category and product URL."
+            "'Nemo Tensor'). Returns up to `limit` products (default 25, max 100) with the base weight "
+            "in grams and the user's unit, category, product URL, and `variants`: only the ones that "
+            "change the weight (size, length, capacity…) are listed, each with its own weight and a "
+            "catalog_variant_id to pass to create_item. Colors and other cosmetic options are not variants."
         ),
         annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True),
     )
@@ -462,21 +464,32 @@ def register_read_tools(mcp: MCPServer) -> None:
                 (CatalogProduct.brand_name + " " + CatalogProduct.product_name).ilike(like),
             )
             rows = (db.session.query(CatalogProduct)
+                    .options(selectinload(CatalogProduct.variants))
                     .filter(CatalogProduct.status == "approved",
                             or_(name_match, CatalogProduct.subcategory.ilike(like), CatalogProduct.category_suggestion.ilike(like)))
-                    .order_by(CatalogProduct.brand_name, CatalogProduct.product_name, CatalogProduct.variant_name)
+                    .order_by(CatalogProduct.brand_name, CatalogProduct.product_name)
                     .limit(max(1, min(int(limit), 100))).all())
-            return {"count": len(rows), "products": [{
-                "catalog_product_id": r.id,
-                "brand": r.brand_name,
-                "product": r.product_name,
-                "variant": r.variant_name,
-                "category": r.category_suggestion,
-                "subcategory": r.subcategory,
-                "weight": weight_fields(to_grams(r.weight, r.weight_unit), caller) if r.weight else None,
-                "calories": r.kcal,
-                "product_url": r.product_url,
-            } for r in rows]}
+
+            def product_out(r):
+                variants = [v for v in (r.variants or []) if not v.hidden and v.weight is not None]
+                variants.sort(key=lambda v: (v.sort_order or 0, v.name.lower()))
+                return {
+                    "catalog_product_id": r.id,
+                    "brand": r.brand_name,
+                    "product": r.product_name,
+                    "category": r.category_suggestion,
+                    "subcategory": r.subcategory,
+                    "weight": weight_fields(to_grams(r.weight, r.weight_unit), caller) if r.weight else None,
+                    "calories": r.kcal,
+                    "product_url": r.product_url,
+                    "variants": [{
+                        "catalog_variant_id": v.id,
+                        "name": v.name,
+                        "weight": weight_fields(to_grams(v.weight, v.weight_unit), caller),
+                        "calories": v.kcal,
+                    } for v in variants],
+                }
+            return {"count": len(rows), "products": [product_out(r) for r in rows]}
         return await run_sync(work)
 
     @mcp.tool(

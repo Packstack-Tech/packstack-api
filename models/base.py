@@ -139,6 +139,7 @@ class Item(Base):
     # locked item.
     catalog_locked = Column(Boolean, default=False, nullable=False,
                             server_default="false")
+    catalog_variant_id = Column(Integer, ForeignKey("catalogvariant.id"))
     sort_order = Column(Integer, default=0)
     removed = Column(Boolean, default=False)
     deleted = Column(Boolean, default=False)
@@ -175,6 +176,7 @@ class Item(Base):
     product = relationship("Product", lazy="joined")
     product_variant = relationship("ProductVariant", lazy="joined")
     catalog_product = relationship("CatalogProduct", lazy="joined")
+    catalog_variant = relationship("CatalogVariant", lazy="joined")
     category = relationship("ItemCategory",
                             lazy="joined",
                             foreign_keys=[category_id],
@@ -248,6 +250,14 @@ class CatalogProduct(Base):
 
     brand_name = Column(String(100), nullable=False, index=True)
     product_name = Column(String(250), nullable=False)
+    # Normalized identity (models/keys.py). Partial unique index on
+    # (brand_key, product_key) WHERE status <> 'migrated' — see
+    # api/migrations/catalog_variants_stage1.sql.
+    brand_key = Column(String(100), index=True)
+    product_key = Column(String(250))
+    # STAGE-2 REMOVAL: variant_name / product_variant_id survive only until the
+    # variant-aware code ships; variants live in CatalogVariant. Rows with
+    # status='migrated' are old variant rows awaiting deletion.
     variant_name = Column(String(250))
     display_name = Column(String(500), nullable=False)
 
@@ -276,8 +286,43 @@ class CatalogProduct(Base):
 
     __table_args__ = (
         UniqueConstraint('brand_name', 'product_name', 'variant_name',
-                         name='uq_catalog_brand_product_variant'),
+                         name='uq_catalog_brand_product_variant'),  # STAGE-2 REMOVAL
         Index('ix_catalog_search', 'status', 'brand_name', 'product_name'),
+    )
+
+    variants = relationship("CatalogVariant", back_populates="product",
+                            order_by="CatalogVariant.sort_order")
+
+
+class CatalogVariant(Base):
+    """A named option of a CatalogProduct. `weight IS NULL` means the
+    variant is aesthetic (color, pattern) and does not affect weight; a
+    non-null weight is the variant's own weight, overriding the product's
+    base weight. See claude/catalog-variants-pivot.md."""
+    id = Column(Integer, primary_key=True, index=True)
+    catalog_product_id = Column(Integer, ForeignKey("catalogproduct.id"), nullable=False, index=True)
+
+    name = Column(String(250), nullable=False)
+    name_key = Column(String(250), nullable=False)   # canonical_variant_key(name)
+
+    weight = Column(Numeric)          # null = aesthetic
+    weight_unit = Column(String(10))
+    kcal = Column(Integer)            # null = inherit product
+    image_url = Column(String(1000))  # null = inherit product
+
+    kind = Column(String(20))         # size|length|gender|color|capacity|other; AI-populated, optional
+    aliases = Column(JSON)            # user spellings that resolved here
+    sort_order = Column(Integer, default=0)
+    hidden = Column(Boolean, default=False, nullable=False, server_default="false")
+
+    created_at = Column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now())
+
+    product = relationship("CatalogProduct", back_populates="variants")
+
+    __table_args__ = (
+        UniqueConstraint('catalog_product_id', 'name_key', name='uq_catalogvariant_product_namekey'),
     )
 
 

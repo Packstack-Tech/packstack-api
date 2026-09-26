@@ -9,7 +9,7 @@ from typing import List, Optional
 from io import StringIO
 from sqlalchemy import or_, func
 
-from models.base import User, Item, ItemLog, ItemCategory, Category, Brand, Product, ProductVariant, CatalogProduct
+from models.base import User, Item, ItemLog, ItemCategory, Category, Brand, Product, ProductVariant, CatalogProduct, CatalogVariant
 from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
@@ -17,6 +17,7 @@ from utils.entity_helpers import (
     resolve_item_fields, resolve_import_category, resolve_brand, resolve_product, clean_name,
 )
 from tasks.enrich_product import enrich_product
+from catalog.resolver import resolve_product, resolve_variant
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ class ItemType(BaseModel):
     product_new: Optional[str] = None
     product_variant_id: Optional[int] = None
     product_variant_new: Optional[str] = None
+    # Explicit catalog picks from the quick-add / item-form pickers. Both are
+    # optional: when absent the link is derived from brand/product/variant.
+    catalog_product_id: Optional[int] = None
+    catalog_variant_id: Optional[int] = None
     category_id: Optional[int] = None
     category_new: Optional[str] = None
     weight: Optional[float] = None
@@ -63,24 +68,37 @@ class ItemType(BaseModel):
         return v
 
 
-def _find_catalog_product(session, brand_id: int, product_id: int, product_variant_id: int | None):
-    """Catalog row for this brand/product/variant.
+def _derive_catalog_link(session, item) -> tuple[int | None, int | None]:
+    """(catalog_product_id, catalog_variant_id) for an item from its
+    brand/product/variant text. Product first; a variant that doesn't
+    match keeps the product link (variant None) — never a different named
+    variant. Locked items are never touched by callers of this."""
+    brand = item.brand.name if item.brand else None
+    product = item.product.name if item.product else None
+    if not brand or not product:
+        return None, None
+    cp = resolve_product(session, brand, product)
+    if cp is None:
+        return None, None
+    variant_text = item.product_variant.name if item.product_variant else None
+    cv = resolve_variant(session, cp, variant_text)
+    return cp.id, (cv.id if cv else None)
 
-    Exact variant match first. If the user's variant has no catalog row,
-    fall back to the variant-less base row (never to a *different* named
-    variant — that is how "Large" ended up displaying as "Regular").
-    """
-    base = session.query(CatalogProduct).filter(
-        CatalogProduct.brand_id == brand_id,
-        CatalogProduct.product_id == product_id,
-        CatalogProduct.status == "approved",
-    )
-    if product_variant_id:
-        exact = base.filter(
-            CatalogProduct.product_variant_id == product_variant_id).first()
-        if exact:
-            return exact
-    return base.filter(CatalogProduct.product_variant_id.is_(None)).first()
+
+def _apply_catalog_pick(session, item, catalog_product_id, catalog_variant_id) -> bool:
+    """Honor an explicit pick from a catalog picker. Returns True if applied.
+    The pair must be consistent (variant belongs to product, product live)."""
+    if not catalog_product_id:
+        return False
+    cp = session.query(CatalogProduct).filter_by(id=catalog_product_id, status="approved").first()
+    if cp is None:
+        return False
+    cv = None
+    if catalog_variant_id:
+        cv = session.query(CatalogVariant).filter_by(id=catalog_variant_id, catalog_product_id=cp.id).first()
+    item.catalog_product_id = cp.id
+    item.catalog_variant_id = cv.id if cv else None
+    return True
 
 
 @route.post("", status_code=201)
@@ -96,31 +114,27 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     item_data.pop("product_variant_new")
     item_data.pop("brand_new")
     item_data.pop("category_new")
+    pick_product = item_data.pop("catalog_product_id")
+    pick_variant = item_data.pop("catalog_variant_id")
 
     new_item = Item(user_id=user.id, **item_data)
+    db.session.add(new_item)
+    db.session.flush()
 
-    if new_item.brand_id and new_item.product_id:
-        catalog_match = _find_catalog_product(
-            db.session, new_item.brand_id, new_item.product_id,
-            new_item.product_variant_id
-        )
-        if catalog_match:
-            new_item.catalog_product_id = catalog_match.id
+    if _apply_catalog_pick(db.session, new_item, pick_product, pick_variant):
+        new_item.catalog_locked = True   # an explicit pick is the user's choice
+    elif new_item.brand_id and new_item.product_id:
+        new_item.catalog_product_id, new_item.catalog_variant_id = _derive_catalog_link(db.session, new_item)
 
     try:
-        db.session.add(new_item)
         db.session.commit()
         db.session.refresh(new_item)
     except Exception:
         logger.exception("Failed to create item")
         raise HTTPException(400, "Unable to create item.")
 
-    if new_item.brand_id and new_item.product_id:
-        enrich_product.delay(
-            new_item.brand_id,
-            new_item.product_id,
-            new_item.product_variant_id,
-        )
+    if new_item.brand_id and new_item.product_id and not new_item.catalog_locked:
+        enrich_product.delay(new_item.id)
 
     return new_item
 
@@ -143,6 +157,8 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     fields.pop("product_variant_new")
     fields.pop("brand_new")
     fields.pop("category_new")
+    pick_product = fields.pop("catalog_product_id")
+    pick_variant = fields.pop("catalog_variant_id")
 
     item = db.session.query(Item).filter_by(
         id=payload.id, user_id=user.id).first()
@@ -153,6 +169,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     old_condition = item.condition
     old_acquired_date = item.acquired_date
     old_identity = (item.brand_id, item.product_id, item.product_variant_id)
+    old_catalog_product_id, old_catalog_variant_id = item.catalog_product_id, item.catalog_variant_id
 
     for key, value in fields.items():
         setattr(item, key, value)
@@ -163,13 +180,16 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     # A locked item (user detached or explicitly chose) is left alone.
     new_identity = (item.brand_id, item.product_id, item.product_variant_id)
     identity_changed = new_identity != old_identity
-    if identity_changed and not item.catalog_locked:
-        match = None
-        if item.brand_id and item.product_id:
-            match = _find_catalog_product(
-                db.session, item.brand_id, item.product_id,
-                item.product_variant_id)
-        item.catalog_product_id = match.id if match else None
+    # Clients often echo the item back whole; a catalog pair equal to what
+    # the item already has is not a pick. Only a *changed* pair is explicit.
+    explicit_pick = (pick_product is not None
+                     and (pick_product, pick_variant) != (old_catalog_product_id, old_catalog_variant_id))
+    if explicit_pick and _apply_catalog_pick(db.session, item, pick_product, pick_variant):
+        item.catalog_locked = True
+    elif identity_changed and not item.catalog_locked:
+        db.session.flush()
+        db.session.refresh(item)
+        item.catalog_product_id, item.catalog_variant_id = _derive_catalog_link(db.session, item)
 
     try:
         if payload.condition and payload.condition != old_condition:
@@ -200,10 +220,9 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
         raise HTTPException(400, "Unable to update item.")
 
     if (identity_changed and not item.catalog_locked
-            and item.brand_id and item.product_id
-            and item.catalog_product_id is None):
-        enrich_product.delay(
-            item.brand_id, item.product_id, item.product_variant_id)
+            and item.brand_id and item.product_id):
+        # Enrich even when a product matched: the variant may be new.
+        enrich_product.delay(item.id)
 
     return item
 
@@ -219,6 +238,7 @@ def detach_catalog(item_id: int, user: User = Depends(authenticate)):
         raise HTTPException(404, "Item not found.")
 
     item.catalog_product_id = None
+    item.catalog_variant_id = None
     item.catalog_locked = True
     try:
         db.session.commit()
@@ -231,6 +251,7 @@ def detach_catalog(item_id: int, user: User = Depends(authenticate)):
 
 class CatalogAttach(BaseModel):
     catalog_product_id: int
+    catalog_variant_id: Optional[int] = None
 
 
 @route.put("/{item_id}/catalog")
@@ -242,12 +263,8 @@ def attach_catalog(item_id: int, payload: CatalogAttach,
         id=item_id, user_id=user.id).first()
     if not item:
         raise HTTPException(404, "Item not found.")
-    cp = db.session.query(CatalogProduct).filter_by(
-        id=payload.catalog_product_id, status="approved").first()
-    if not cp:
+    if not _apply_catalog_pick(db.session, item, payload.catalog_product_id, payload.catalog_variant_id):
         raise HTTPException(404, "Catalog product not found.")
-
-    item.catalog_product_id = cp.id
     item.catalog_locked = True
     try:
         db.session.commit()

@@ -1,19 +1,17 @@
 import logging
 import re
 from collections import defaultdict
-from itertools import groupby
-from operator import attrgetter
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from sqlalchemy import case, func, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import selectinload, joinedload
 
 from models.base import Brand, CatalogProduct, Product, User, ProductVariant
 from utils.auth import authenticate
-from utils.weight import convert_weight
+from catalog.resolver import resolve_product, serialize_product
 
 logger = logging.getLogger(__name__)
 
@@ -100,22 +98,11 @@ def catalog_search(
         CatalogProduct.status == "approved")
 
     if brand is not None and product is not None:
-        entries = base.filter(
-            CatalogProduct.brand_name == brand,
-            CatalogProduct.product_name == product,
-        ).order_by(CatalogProduct.variant_name).all()
-
-        return [{
-            "id": e.id,
-            "brand_id": e.brand_id,
-            "product_id": e.product_id,
-            "product_variant_id": e.product_variant_id,
-            "variant_name": e.variant_name,
-            "weight": float(e.weight) if e.weight else None,
-            "weight_unit": e.weight_unit,
-            "product_url": e.product_url,
-            "category_suggestion": e.category_suggestion,
-        } for e in entries]
+        # One product (with its variants) for the item-form pickers. Matched
+        # by normalized key so spelling differences in the legacy Product
+        # name still find the catalog row.
+        cp = resolve_product(db.session, brand, product)
+        return serialize_product(cp) if cp else None
 
     if brand is not None:
         query = base.filter(CatalogProduct.brand_name == brand)
@@ -166,15 +153,6 @@ def _slugify(name: str) -> str:
     return s.strip('-')
 
 
-def _weight_to_grams(weight, weight_unit) -> float | None:
-    if weight is None or weight_unit is None:
-        return None
-    try:
-        return convert_weight(weight, weight_unit, "g")
-    except Exception:
-        return None
-
-
 @route.get("/catalog/categories")
 def catalog_categories():
     rows = (
@@ -208,68 +186,10 @@ def catalog_categories():
     )
 
 
-def _serialize_product_groups(entries, compact: bool = False):
-    """Group CatalogProduct rows (sorted by brand, product) into products
-    with nested variants. Shared by catalog browse and product search.
-
-    ``compact`` trims the prose-heavy fields (description, additional_specs,
-    display_name, per-variant images) for the quick-add typeahead, which only
-    needs identity, weight and calories to build an item."""
-    products = []
-    key_fn = attrgetter("brand_name", "product_name")
-    for (brand, product), group_iter in groupby(entries, key=key_fn):
-        variants_raw = list(group_iter)
-        variants = []
-        lightest_g: float | None = None
-        product_url: str | None = None
-        catalog_url_slug: str | None = None
-        image_url: str | None = None
-
-        for v in variants_raw:
-            w_g = _weight_to_grams(v.weight, v.weight_unit)
-            if w_g is not None and (lightest_g is None or w_g < lightest_g):
-                lightest_g = w_g
-            if not product_url and v.product_url:
-                product_url = v.product_url
-            if not catalog_url_slug and v.catalog_url_slug:
-                catalog_url_slug = v.catalog_url_slug
-            if not image_url and v.image_url:
-                image_url = v.image_url
-
-            variant = {
-                "id": v.id,
-                "brand_id": v.brand_id,
-                "product_id": v.product_id,
-                "product_variant_id": v.product_variant_id,
-                "variant_name": v.variant_name,
-                "weight": float(v.weight) if v.weight is not None else None,
-                "weight_unit": v.weight_unit,
-                "kcal": v.kcal,
-            }
-            if not compact:
-                variant.update({
-                    "display_name": v.display_name,
-                    "image_url": v.image_url,
-                    "description": v.description,
-                    "additional_specs": v.additional_specs,
-                })
-            variants.append(variant)
-
-        first = variants_raw[0]
-        products.append({
-            "brand_name": brand,
-            "product_name": product,
-            "product_url": product_url,
-            "catalog_url_slug": catalog_url_slug,
-            "image_url": image_url,
-            "category": first.category_suggestion,
-            "subcategory": first.subcategory,
-            "subcategory_slug": _slugify(first.subcategory) if first.subcategory else None,
-            "lightest_weight_g": round(lightest_g, 2) if lightest_g is not None else None,
-            "variants": variants,
-        })
-
-    return products
+def _serialize_products(entries, compact: bool = False):
+    """Products with nested variants, via the one catalog serializer. Callers
+    must selectinload(CatalogProduct.variants) to avoid N+1."""
+    return [serialize_product(e, compact=compact) for e in entries]
 
 
 @route.get("/catalog/browse/{slug}")
@@ -291,6 +211,7 @@ def catalog_browse(slug: str):
 
     entries = (
         db.session.query(CatalogProduct)
+        .options(selectinload(CatalogProduct.variants))
         .filter(
             CatalogProduct.status == "approved",
             CatalogProduct.subcategory == subcategory_name,
@@ -301,7 +222,7 @@ def catalog_browse(slug: str):
 
     category_name = entries[0].category_suggestion if entries else None
 
-    products = _serialize_product_groups(entries)
+    products = _serialize_products(entries)
     products.sort(key=lambda p: (
         p["lightest_weight_g"] is None,
         p["lightest_weight_g"] or 0,
@@ -343,25 +264,23 @@ def catalog_product_search(q: str = "", compact: bool = False):
 
     # Name matches outrank subcategory-only matches, so a generic query like
     # "tent" surfaces products actually named "tent" before the whole Tent
-    # subcategory, and the row cap truncates the least relevant rather than
-    # everything after brand "C". Ordering stays grouped by brand+product so
-    # a product's variants remain adjacent for _serialize_product_groups.
+    # subcategory.
     relevance = case((name_match, 0), else_=1)
 
     entries = (
         db.session.query(CatalogProduct)
+        .options(selectinload(CatalogProduct.variants))
         .filter(
             CatalogProduct.status == "approved",
             or_(name_match, CatalogProduct.subcategory.ilike(search)),
         )
         .order_by(relevance, CatalogProduct.brand_name,
                   CatalogProduct.product_name)
-        .limit(500)
+        .limit(MAX_GEAR_SEARCH_PRODUCTS)
         .all()
     )
 
-    return _serialize_product_groups(
-        entries, compact=compact)[:MAX_GEAR_SEARCH_PRODUCTS]
+    return _serialize_products(entries, compact=compact)
 
 
 @route.get("/brand/search/{query}")

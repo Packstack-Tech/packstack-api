@@ -27,7 +27,8 @@ from mcp.types import ToolAnnotations
 from sqlalchemy import func, literal, or_
 from sqlalchemy.orm import noload
 
-from api.item import _find_catalog_product
+from api.item import _derive_catalog_link
+from catalog.resolver import resolve_variant as resolve_catalog_variant
 from api.item_lifecycle import (
     VALID_ACQUISITION_TYPES, VALID_CONDITIONS, VALID_EVENT_TYPES, VALID_RETIRED_REASONS,
     VALID_STATUSES,
@@ -40,13 +41,13 @@ from mcp_server.context import (
 )
 from mcp_server.tools import _own_trip, _pack_detail, _packs_query, _trip_header
 from models.base import (
-    CatalogProduct, Item, ItemLog, Kit, KitItem, Pack, PackItem, Trip,
+    CatalogProduct, CatalogVariant, Item, ItemLog, Kit, KitItem, Pack, PackItem, Trip,
 )
 from utils.entity_helpers import (
     resolve_brand, resolve_category, resolve_product, resolve_product_variant,
 )
 from utils.item_category import get_or_create_item_category
-from tasks.enrich_product import normalize_brand, normalize_name
+from models.keys import normalize_brand, normalize_name
 from utils.utils import clone_model
 
 logger = logging.getLogger(__name__)
@@ -438,8 +439,9 @@ def register_write_tools(mcp: MCPServer) -> None:
     @write_tool(
         "create_item",
         "Add a piece of gear to the user's closet. Prefer passing `catalog_product_id` from "
-        "search_catalog: brand, product and weight are then taken from the catalog and no new "
-        "product record is created. Without it, give `brand` and `product` as free text — but if "
+        "search_catalog (plus `catalog_variant_id` when the product lists weight-bearing variants "
+        "and the user knows theirs): brand, product and weight are then taken from the catalog and "
+        "no new product record is created. Without it, give `brand` and `product` as free text — but if "
         "they resemble an existing catalog product or something already in the closet, this tool "
         "REFUSES and lists the candidates (with catalog_product_id / item_id) so you can pick one "
         "or use the existing item. Pass `create_new_product: true` only after confirming with the "
@@ -449,6 +451,7 @@ def register_write_tools(mcp: MCPServer) -> None:
     async def create_item(
         name: str,
         catalog_product_id: Optional[int] = None,
+        catalog_variant_id: Optional[int] = None,
         brand: Optional[str] = None,
         product: Optional[str] = None,
         variant: Optional[str] = None,
@@ -480,16 +483,31 @@ def register_write_tools(mcp: MCPServer) -> None:
                     raise ToolError(f"catalog_product_id {catalog_product_id} was not found. Use search_catalog.")
                 item.brand_id = cat.brand_id or resolve_brand(db.session, cat.brand_name)
                 item.product_id = cat.product_id or resolve_product(db.session, cat.product_name, item.brand_id)
-                if cat.variant_name:
-                    item.product_variant_id = cat.product_variant_id or resolve_product_variant(db.session, cat.variant_name, item.product_id)
                 item.catalog_product_id = cat.id
-                if item.weight is None and cat.weight:
-                    item.weight = float(cat.weight)
-                    item.unit = cat.weight_unit or "g"
+                item.catalog_locked = True   # explicit pick is the user's choice
+                cv = None
+                if catalog_variant_id is not None:
+                    cv = db.session.query(CatalogVariant).filter_by(
+                        id=catalog_variant_id, catalog_product_id=cat.id, hidden=False).first()
+                    if cv is None:
+                        raise ToolError(f"catalog_variant_id {catalog_variant_id} is not a variant of that product.")
+                elif variant:
+                    cv = resolve_catalog_variant(db.session, cat, variant)
+                if cv is not None:
+                    item.catalog_variant_id = cv.id
+                    item.product_variant_id = resolve_product_variant(db.session, cv.name, item.product_id)
+                elif variant:
+                    item.product_variant_id = resolve_product_variant(db.session, variant, item.product_id)
+                # Prefill from the catalog: variant weight/kcal override the base.
+                w, wu = (cv.weight, cv.weight_unit) if (cv is not None and cv.weight is not None) else (cat.weight, cat.weight_unit)
+                if item.weight is None and w:
+                    item.weight = float(w)
+                    item.unit = wu or "g"
                 if not item.product_url and cat.product_url:
                     item.product_url = cat.product_url
-                if item.calories is None and cat.kcal:
-                    item.calories = cat.kcal
+                kcal = cv.kcal if (cv is not None and cv.kcal is not None) else cat.kcal
+                if item.calories is None and kcal:
+                    item.calories = kcal
                 dedupe_note = None
             elif brand and product:
                 candidates = _duplicate_candidates(caller, brand, product, variant)
@@ -503,10 +521,11 @@ def register_write_tools(mcp: MCPServer) -> None:
                 item.product_id = resolve_product(db.session, product, item.brand_id)
                 if variant:
                     item.product_variant_id = resolve_product_variant(db.session, variant, item.product_id)
-                match = _find_catalog_product(db.session, item.brand_id, item.product_id, item.product_variant_id)
-                if match:
-                    item.catalog_product_id = match.id
-                dedupe_note = None if match else "New product recorded; Packstack will research it in the background."
+                db.session.add(item)
+                db.session.flush()
+                db.session.refresh(item)
+                item.catalog_product_id, item.catalog_variant_id = _derive_catalog_link(db.session, item)
+                dedupe_note = None if item.catalog_product_id else "New product recorded; Packstack will research it in the background."
             else:
                 if brand and not product:
                     item.brand_id = resolve_brand(db.session, brand)
@@ -520,9 +539,9 @@ def register_write_tools(mcp: MCPServer) -> None:
             db.session.commit()
             db.session.refresh(item)
 
-            if item.brand_id and item.product_id and not item.catalog_product_id:
+            if item.brand_id and item.product_id and not item.catalog_locked:
                 from tasks.enrich_product import enrich_product
-                _enqueue(enrich_product, item.brand_id, item.product_id, item.product_variant_id)
+                _enqueue(enrich_product, item.id)
 
             out = item_summary(item, caller)
             out["note"] = dedupe_note
@@ -820,7 +839,7 @@ def _duplicate_candidates(caller: Caller, brand: str, product: str, variant: Opt
                                 # query contains the catalog name, or the catalog name contains the query
                                 or_(product_sql.like(f"%{p_key}%"),
                                     literal(p_key).like(func.concat("%", product_sql, "%"))))
-                        .order_by(CatalogProduct.product_name, CatalogProduct.variant_name).limit(12).all())
+                        .order_by(CatalogProduct.product_name).limit(12).all())
             if normalize_brand(c.brand_name) == b_key][:6]
 
     def product_matches(name: Optional[str]) -> bool:
@@ -836,7 +855,7 @@ def _duplicate_candidates(caller: Caller, brand: str, product: str, variant: Opt
     parts = []
     if cats:
         parts.append("Catalog matches: " + "; ".join(
-            f"{c.brand_name} {c.product_name}{' ' + c.variant_name if c.variant_name else ''} "
+            f"{c.brand_name} {c.product_name} "
             f"(catalog_product_id {c.id}{', ' + weight_fields(to_grams(c.weight, c.weight_unit), caller)['display'] if c.weight else ''})"
             for c in cats) + ".")
     if closet:
