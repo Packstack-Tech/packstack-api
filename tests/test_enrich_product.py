@@ -1,4 +1,4 @@
-"""ensure_product / ensure_variant / link_items on SQLite with the model stubbed.
+"""catalog.enrich: ensure_product / ensure_variant / link_items / enrich_item on SQLite with the model stubbed.
 
     cd api && python tests/test_enrich_product.py
 """
@@ -17,7 +17,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from models.base import Base, Brand, Product, ProductVariant, Item, CatalogProduct, CatalogVariant, User
-from tasks import enrich_product as ep
+from catalog import enrich as ep
 
 
 def setup():
@@ -39,14 +39,14 @@ def test_flow():
                   "variant_name": "Regular", "weight_grams": 425, "product_url": "https://nemoequipment.com/tensor",
                   "description": "pad", "category": "Sleep System", "subcategory": "Sleeping Pad"}
     variant_ai = {"is_variant": True, "affects_weight": False, "canonical_name": "Regular", "kind": "size"}
+    m_img = mock.Mock()
     with mock.patch.object(ep, "_call_ai_product", return_value=product_ai) as m_prod, \
          mock.patch.object(ep, "_call_ai_variant", return_value=variant_ai) as m_var, \
-         mock.patch.object(ep, "find_product_image") as m_img, \
          mock.patch.object(ep, "_check_url", return_value=200):
-        # 1. unknown product → researched, inserted with keys, image job queued
-        cp = ep.ensure_product(s, b, p, "reg")
+        # 1. unknown product → researched, inserted with keys, image hook called
+        cp = ep.ensure_product(s, b, p, "reg", on_product_created=m_img)
         assert cp is not None and cp.product_name == "Tensor Insulated" and cp.brand_key == "nemo" and cp.product_key == "tensorinsulated"
-        assert m_prod.call_count == 1 and m_img.delay.called
+        assert m_prod.call_count == 1 and m_img.call_args[0] == (cp.id,)
         # 2. same product again → resolved by key, no AI
         assert ep.ensure_product(s, b, p, None).id == cp.id and m_prod.call_count == 1
         # spelling / suffix variant of the brand also resolves
@@ -87,6 +87,18 @@ def test_flow():
         assert ep.ensure_product(s, b3, p3, None) is None and m_prod.call_count == 2
         assert ep.ensure_product(s, b3, p3, None) is None and m_prod.call_count == 2
         assert s.query(CatalogProduct).filter_by(status="rejected").count() == 1
+
+        # 10. enrich_item end to end on a fresh item: resolves by FK, variant by alias, links
+        s.expire_all()
+        fresh = Item(user_id=1, name="pad3", brand_id=b.id, product_id=p.id, product_variant_id=pv.id, weight=1, unit="g")
+        s.add(fresh); s.commit()
+        cp2, cv2 = ep.enrich_item(s, fresh.id)
+        assert cp2.id == cp.id and cv2.id == cv.id and m_prod.call_count == 2 and m_var.call_count == 3
+        s.expire_all()
+        assert (s.get(Item, fresh.id).catalog_product_id, s.get(Item, fresh.id).catalog_variant_id) == (cp.id, cv.id)
+        # locked item is untouched
+        locked = s.get(Item, items[2].id)
+        assert ep.enrich_item(s, locked.id) == (None, None)
     print("ENRICH OK")
 
 
