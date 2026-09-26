@@ -250,15 +250,9 @@ class CatalogProduct(Base):
 
     brand_name = Column(String(100), nullable=False, index=True)
     product_name = Column(String(250), nullable=False)
-    # Normalized identity (models/keys.py). Partial unique index on
-    # (brand_key, product_key) WHERE status <> 'migrated' — see
-    # api/migrations/catalog_variants_stage1.sql.
-    brand_key = Column(String(100), index=True)
-    product_key = Column(String(250))
-    # STAGE-2 REMOVAL: variant_name / product_variant_id survive only until the
-    # variant-aware code ships; variants live in CatalogVariant. Rows with
-    # status='migrated' are old variant rows awaiting deletion.
-    variant_name = Column(String(250))
+    # Normalized identity (models/keys.py); unique per product.
+    brand_key = Column(String(100), nullable=False, index=True)
+    product_key = Column(String(250), nullable=False)
     display_name = Column(String(500), nullable=False)
 
     weight = Column(Numeric)
@@ -273,8 +267,7 @@ class CatalogProduct(Base):
     kcal = Column(Integer)
 
     brand_id = Column(Integer, ForeignKey("brand.id"))
-    product_id = Column(Integer, ForeignKey("product.id"))
-    product_variant_id = Column(Integer, ForeignKey("productvariant.id"))
+    product_id = Column(Integer, ForeignKey("product.id"))   # legacy product this row was researched from
 
     status = Column(String(20), default="pending", index=True)
     source_item_count = Column(Integer)
@@ -285,8 +278,7 @@ class CatalogProduct(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint('brand_name', 'product_name', 'variant_name',
-                         name='uq_catalog_brand_product_variant'),  # STAGE-2 REMOVAL
+        UniqueConstraint('brand_key', 'product_key', name='uq_catalogproduct_keys'),
         Index('ix_catalog_search', 'status', 'brand_name', 'product_name'),
     )
 
