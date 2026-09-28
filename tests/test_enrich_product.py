@@ -41,6 +41,7 @@ def test_flow():
     variant_ai = {"is_variant": True, "affects_weight": False, "canonical_name": "Regular", "kind": "size"}
     m_img = mock.Mock()
     with mock.patch.object(ep, "_call_ai_product", return_value=product_ai) as m_prod, \
+         mock.patch.object(ep, "_call_ai_recall", return_value=None) as m_recall, \
          mock.patch.object(ep, "_call_ai_variant", return_value=variant_ai) as m_var, \
          mock.patch.object(ep, "_check_url", return_value=200):
         # 1. unknown product → researched, inserted with keys, image hook called
@@ -80,20 +81,62 @@ def test_flow():
         assert (i2.catalog_product_id, i2.catalog_variant_id) == (None, None)   # locked
         assert n == 3
 
+        # 8b. variant that affects weight but the model has no figure: users' median fills it, no search
+        m_var.return_value = {"is_variant": True, "affects_weight": True, "canonical_name": "Wide", "weight_grams": None, "kind": "size"}
+        pv_wide = ProductVariant(product_id=p.id, name="wide"); s.add(pv_wide); s.flush()
+        s.add(Item(user_id=1, name="w", brand_id=b.id, product_id=p.id, product_variant_id=pv_wide.id, weight=16, unit="oz")); s.commit()
+        calls_before = m_var.call_count
+        cv_wide = ep.ensure_variant(s, cp, "wide", legacy_variant_id=pv_wide.id)
+        assert round(float(cv_wide.weight)) == 454 and m_var.call_count == calls_before + 1   # 16 oz, one classify call, no search
+        assert m_var.call_args.kwargs.get("user_median_g") and not m_var.call_args.kwargs.get("with_search")
+
         # 9. rejected product short-circuits forever
-        b3 = Brand(name="Misc"); s.add(b3); s.flush()
-        p3 = Product(brand_id=b3.id, name="small bag"); s.add(p3); s.flush()
-        m_prod.return_value = {"is_valid_product": False, "brand_name": "Misc", "product_name": "small bag"}
+        b3 = Brand(name="Acme"); s.add(b3); s.flush()
+        p3 = Product(brand_id=b3.id, name="thingamajig deluxe"); s.add(p3); s.flush()
+        m_prod.return_value = {"is_valid_product": False, "brand_name": "Acme", "product_name": "thingamajig deluxe"}
         assert ep.ensure_product(s, b3, p3, None) is None and m_prod.call_count == 2
         assert ep.ensure_product(s, b3, p3, None) is None and m_prod.call_count == 2
         assert s.query(CatalogProduct).filter_by(status="rejected").count() == 1
+
+        # 9b. junk brand/product: rejected with NO model call at all
+        bj = Brand(name="Generic"); s.add(bj); s.flush()
+        pj = Product(brand_id=bj.id, name="Stuff sack"); s.add(pj); s.flush()
+        before = (m_prod.call_count, m_recall.call_count)
+        assert ep.ensure_product(s, bj, pj, None) is None
+        assert (m_prod.call_count, m_recall.call_count) == before
+        assert s.query(CatalogProduct).filter_by(status="rejected").count() == 2
+        assert ep.is_junk("Nemo", "Tensor") is None and ep.is_junk("MYOG", "Quilt") and ep.is_junk("Osprey", "Pack")
+
+        # 9c. tier 1 accepted when users' weights corroborate; tier 2 never called
+        bt = Brand(name="BRS"); s.add(bt); s.flush()
+        pt = Product(brand_id=bt.id, name="BRS-3000T"); s.add(pt); s.flush()
+        s.add(Item(user_id=1, name="stove", brand_id=bt.id, product_id=pt.id, weight=26, unit="g")); s.commit()
+        m_recall.return_value = {"is_valid_product": True, "brand_name": "BRS", "product_name": "BRS-3000T",
+                                 "weight_grams": 25, "confidence": 0.95, "product_url": "https://brs.example/3000t",
+                                 "category": "Kitchen", "subcategory": "Stove"}
+        before = m_prod.call_count
+        cpt = ep.ensure_product(s, bt, pt, None)
+        assert cpt is not None and float(cpt.weight) == 25 and m_prod.call_count == before   # no web research
+        # 9d. tier 1 disagrees with users (says 60 g, users say 26 g) → falls through to web research
+        bt2 = Brand(name="Soto"); s.add(bt2); s.flush()
+        pt2 = Product(brand_id=bt2.id, name="Amicus"); s.add(pt2); s.flush()
+        s.add(Item(user_id=1, name="stove", brand_id=bt2.id, product_id=pt2.id, weight=75, unit="g")); s.commit()
+        m_recall.return_value = {"is_valid_product": True, "brand_name": "SOTO", "product_name": "Amicus", "weight_grams": 120, "confidence": 0.9, "product_url": "https://x"}
+        m_prod.return_value = {"is_valid_product": True, "brand_name": "SOTO", "product_name": "Amicus", "weight_grams": 75, "product_url": "https://soto.example/amicus", "category": "Kitchen"}
+        cpt2 = ep.ensure_product(s, bt2, pt2, None)
+        assert float(cpt2.weight) == 75 and m_prod.call_count == before + 1
+        m_recall.return_value = None
+        m_prod.return_value = product_ai
 
         # 10. enrich_item end to end on a fresh item: resolves by FK, variant by alias, links
         s.expire_all()
         fresh = Item(user_id=1, name="pad3", brand_id=b.id, product_id=p.id, product_variant_id=pv.id, weight=1, unit="g")
         s.add(fresh); s.commit()
+        prod_calls, var_calls = m_prod.call_count, m_var.call_count
         cp2, cv2 = ep.enrich_item(s, fresh.id)
-        assert cp2.id == cp.id and cv2.id == cv.id and m_prod.call_count == 2 and m_var.call_count == 3
+        # FK hit + alias hit: no new product research, no new variant classification
+        assert cp2.id == cp.id and cv2.id == cv.id
+        assert (m_prod.call_count, m_var.call_count) == (prod_calls, var_calls)
         s.expire_all()
         assert (s.get(Item, fresh.id).catalog_product_id, s.get(Item, fresh.id).catalog_variant_id) == (cp.id, cv.id)
         # locked item is untouched

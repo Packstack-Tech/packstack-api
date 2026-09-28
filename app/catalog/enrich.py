@@ -41,7 +41,15 @@ logger = logging.getLogger(__name__)
 # AI client
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_MODEL = os.environ.get("ENRICH_MODEL", "claude-sonnet-5")          # tier 2: web research
+FAST_MODEL = os.environ.get("ENRICH_MODEL_FAST", "claude-haiku-4-5-20251001")          # tier 1 + variant classifier
+WEB_SEARCH_MAX_USES = int(os.environ.get("ENRICH_WEB_SEARCH_MAX_USES", "2"))
+ENRICH_THINKING = os.environ.get("ENRICH_THINKING", "0") == "1"                # adaptive thinking on tier 2
+MAX_TOKENS = int(os.environ.get("ENRICH_MAX_TOKENS", "1500"))
+# Tier-1 answer is trusted when its weight is within this fraction of the
+# median weight users entered for the product.
+FAST_WEIGHT_TOLERANCE = float(os.environ.get("ENRICH_FAST_WEIGHT_TOLERANCE", "0.15"))
+
 _client = None
 
 
@@ -64,17 +72,38 @@ def supports_adaptive_thinking(model: str) -> bool:
     return model.startswith(ADAPTIVE_THINKING_PREFIXES)
 
 
+def _log_usage(label: str, model: str, response) -> None:
+    """One line per call so cost is visible in the worker logs."""
+    u = getattr(response, "usage", None)
+    if u is None:
+        return
+    searches = 0
+    stu = getattr(u, "server_tool_use", None)
+    if stu is not None:
+        searches = getattr(stu, "web_search_requests", 0) or 0
+    logger.info(
+        "usage %s model=%s in=%s cache_read=%s cache_write=%s out=%s web_searches=%s",
+        label, model, u.input_tokens,
+        getattr(u, "cache_read_input_tokens", 0) or 0,
+        getattr(u, "cache_creation_input_tokens", 0) or 0,
+        u.output_tokens, searches,
+    )
+
+
 def ai_complete(system: str, user: str, tools: list | None = None, max_retries: int = 3,
-                model: str | None = None):
+                model: str | None = None, thinking: bool | None = None, label: str = "ai"):
+    """One model call. The system prompt (and tools before it) is marked for
+    prompt caching: it is identical across calls, so repeats are ~90% cheaper."""
     client = _get_ai_client()
     resolved_model = model or DEFAULT_MODEL
     kwargs = dict(
         model=resolved_model,
-        max_tokens=4096,
-        system=system,
+        max_tokens=MAX_TOKENS,
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user}],
     )
-    if supports_adaptive_thinking(resolved_model):
+    use_thinking = ENRICH_THINKING if thinking is None else thinking
+    if use_thinking and supports_adaptive_thinking(resolved_model):
         kwargs["thinking"] = {"type": "adaptive"}
     if tools:
         kwargs["tools"] = tools
@@ -106,6 +135,7 @@ def ai_complete(system: str, user: str, tools: list | None = None, max_retries: 
         ]
         response = client.messages.create(**kwargs)
 
+    _log_usage(label, resolved_model, response)
     return response
 
 
@@ -178,12 +208,10 @@ SYSTEM_PROMPT = (
     "of outdoor gear brands, product lines, and specifications. When given a brand and product name "
     "(which may be misspelled, abbreviated, or include variant info in the name), you research and "
     "return the canonical product information.\n\n"
-    "You have access to web search. Use it to find product pages from both the manufacturer's website "
-    "and major retail sites (REI, Amazon, etc.), since many manufacturers do not sell directly. "
-    "Try searching the manufacturer's site first "
-    '(e.g. "site:nemoequipment.com Tensor Insulated"), then also search retail sites '
-    '(e.g. "Nemo Tensor Insulated site:rei.com" or the product name on Amazon). '
-    "From the best available product page(s), extract:\n"
+    "You may have web search with a small budget. Use at most two searches: first the brand and "
+    'product together (e.g. "Nemo Tensor Insulated weight specs"), and only if that does not give the '
+    'weight, a retail search (e.g. "Nemo Tensor Insulated site:rei.com"). Do not search for things you '
+    "already know. From the best available product page(s), extract:\n"
     "- A product URL (prefer the manufacturer's page if available, otherwise use a retail page)\n"
     "- The listed weight and any other specs (R-value, volume, packed size, temperature rating, etc.)\n\n"
     "WEIGHT IS CRITICAL: Weight in grams is the single most important spec for our catalog. "
@@ -211,7 +239,7 @@ SYSTEM_PROMPT = (
 WEB_SEARCH_TOOL = {
     "type": "web_search_20250305",
     "name": "web_search",
-    "max_uses": 5,
+    "max_uses": WEB_SEARCH_MAX_USES,
 }
 
 TOOL_SCHEMA = {
@@ -408,11 +436,115 @@ def _call_ai_product(brand_name: str, product_name: str, variant_hint: str | Non
         system=SYSTEM_PROMPT,
         user=_build_user_prompt(brand_name, product_name, variant_hint),
         tools=[WEB_SEARCH_TOOL, TOOL_SCHEMA],
+        label="product/research",
     )
     for block in response.content:
         if block.type == "tool_use" and block.name == "catalog_entry":
             return block.input
     return None
+
+
+# ---------------------------------------------------------------------------
+# Junk pre-filter — no model call for things that can never be catalog gear
+# ---------------------------------------------------------------------------
+
+_JUNK_BRANDS = {
+    "", "generic", "unknown", "unbranded", "no brand", "nobrand", "none", "n/a", "na", "misc",
+    "miscellaneous", "various", "myog", "diy", "homemade", "home made", "custom", "other", "-", "--",
+    "?", "??", "???", "tbd", "test", "x", "brand", "manufacturer", "amazon", "aliexpress", "ali", "temu",
+    "ebay", "walmart", "target", "costco", "supermarket", "grocery", "dollar store", "dollarstore",
+}
+# A product name that is only a generic noun is a category, not a product.
+_GENERIC_PRODUCT_WORDS = {
+    "tent", "tarp", "backpack", "pack", "bag", "stuff sack", "stuffsack", "dry bag", "drybag", "pillow",
+    "quilt", "sleeping bag", "sleeping pad", "pad", "stove", "pot", "spoon", "spork", "knife", "headlamp",
+    "lighter", "matches", "socks", "shirt", "pants", "shorts", "jacket", "hat", "gloves", "towel",
+    "toothbrush", "toothpaste", "sunscreen", "water bottle", "bottle", "rope", "cord", "stakes", "food",
+    "snacks", "phone", "charger", "cable", "battery", "batteries", "wallet", "keys", "misc", "stuff",
+}
+
+
+def is_junk(brand_name: str | None, product_name: str | None) -> str | None:
+    """Reason string when this brand/product should be rejected without a
+    model call, else None."""
+    b = (brand_name or "").strip().casefold()
+    pn = (product_name or "").strip()
+    p = pn.casefold()
+    if b in _JUNK_BRANDS:
+        return f"junk brand {brand_name!r}"
+    if len(re.sub(r"[^\w]", "", p)) < 3:
+        return f"product name too short {pn!r}"
+    if p in _GENERIC_PRODUCT_WORDS or p.rstrip("s") in _GENERIC_PRODUCT_WORDS:
+        return f"generic product word {pn!r}"
+    if re.fullmatch(r"[\d\s.,x×*/-]+(g|kg|oz|lb|l|ml|cm|mm|in)?", p):
+        return f"product name is a measurement {pn!r}"
+    if not re.search(r"[A-Za-z0-9]", pn):
+        return f"product name has no Latin characters {pn!r}"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Tier 1 — recall from model knowledge, no tools
+# ---------------------------------------------------------------------------
+
+FAST_SYSTEM_PROMPT = (
+    "You are a backpacking and outdoor gear product database answering FROM MEMORY. You have no web "
+    "access. Given a brand and product name typed by a user (possibly misspelled or with a size/color "
+    "in the name), return the canonical product information if you know this product well.\n\n"
+    "Be honest about uncertainty: set `confidence` to how sure you are of the WEIGHT specifically "
+    "(0.9+ only for well-known products whose spec you clearly recall; 0.5 or less if you are "
+    "reconstructing or guessing). Never invent a weight — if you do not know it, set weight_grams to "
+    "null and confidence low. product_name is the BASE product: strip size, length, gender, person "
+    "count, color or capacity descriptors into variant_name. weight_grams is the base/default "
+    "configuration.\n\n"
+    "If the input is not a real, identifiable outdoor product, mark it invalid.\n\n"
+    f"category MUST be one of: {', '.join(CATEGORIES)}. Subcategories per category:\n{_subcategory_block}\n"
+    "Pick a subcategory from the list for the chosen category, or null. For Food, report kcal per serving."
+)
+
+FAST_TOOL_SCHEMA = {
+    **TOOL_SCHEMA,
+    "name": "catalog_entry_recall",
+    "input_schema": {
+        **TOOL_SCHEMA["input_schema"],
+        "properties": {
+            **TOOL_SCHEMA["input_schema"]["properties"],
+            "confidence": {
+                "type": "number",
+                "description": "0-1: how sure you are that weight_grams is the manufacturer's spec.",
+            },
+        },
+        "required": TOOL_SCHEMA["input_schema"]["required"] + ["confidence"],
+    },
+}
+
+
+def _call_ai_recall(brand_name: str, product_name: str, variant_hint: str | None) -> dict | None:
+    response = ai_complete(
+        system=FAST_SYSTEM_PROMPT,
+        user=_build_user_prompt(brand_name, product_name, variant_hint),
+        tools=[FAST_TOOL_SCHEMA],
+        model=FAST_MODEL,
+        thinking=False,
+        label="product/recall",
+    )
+    for block in response.content:
+        if block.type == "tool_use" and block.name == "catalog_entry_recall":
+            return block.input
+    return None
+
+
+def _recall_is_trustworthy(result: dict, median_weight: float | None) -> bool:
+    """Accept a from-memory answer only when users' own weights corroborate it
+    (or, with no user weights, the model is very sure and named a URL)."""
+    if not result.get("is_valid_product"):
+        return True   # a confident "not a product" needs no web search to confirm
+    w = result.get("weight_grams")
+    if w is None:
+        return False
+    if median_weight and median_weight > 0:
+        return abs(float(w) - median_weight) / median_weight <= FAST_WEIGHT_TOLERANCE
+    return (result.get("confidence") or 0) >= 0.9 and bool(result.get("product_url"))
 
 
 # ---------------------------------------------------------------------------
@@ -432,9 +564,10 @@ VARIANT_SYSTEM_PROMPT = (
     "3. canonical_name — the manufacturer's spelling of the option (\"Regular\" not \"reg\", \"Women's\" not "
     "\"wmns\", \"2P\" not \"2 person\"). If the text matches one of the variants already on file, return "
     "that variant's exact name.\n"
-    "4. weight_grams — ONLY when affects_weight is true: the manufacturer's weight in grams for THAT option. "
-    "Use web search (manufacturer site first, then REI/Amazon). If you cannot find it, return null — never "
-    "guess and never copy the base weight.\n"
+    "4. weight_grams — ONLY when affects_weight is true: the manufacturer's weight in grams for THAT option "
+    "if you know it. If a weight users entered is given and looks plausible for the option, use it. If you "
+    "have web search, use at most one search. Otherwise return null — never guess and never copy the base "
+    "weight.\n"
     "5. kind — one of size, length, gender, color, capacity, other."
 )
 
@@ -455,7 +588,22 @@ VARIANT_TOOL_SCHEMA = {
 }
 
 
-def _call_ai_variant(cp: CatalogProduct, variant_text: str) -> dict | None:
+def _variant_user_median_g(session, cp: CatalogProduct, legacy_variant_id: int | None) -> float | None:
+    """Median of the weights users entered for items on this legacy variant of
+    this product — usually a better source than a web page, and free."""
+    if legacy_variant_id is None or cp.product_id is None:
+        return None
+    rows = session.query(Item.weight, Item.unit).filter(
+        Item.product_id == cp.product_id, Item.product_variant_id == legacy_variant_id,
+        Item.weight.isnot(None), Item.weight != 0).all()
+    if not rows:
+        return None
+    conv = {"g": 1, "kg": 1000, "oz": 28.3495, "lb": 453.592}
+    return statistics.median(float(w) * conv.get(u, 1) for w, u in rows)
+
+
+def _call_ai_variant(cp: CatalogProduct, variant_text: str, user_median_g: float | None = None,
+                     with_search: bool = False) -> dict | None:
     known = [v for v in (cp.variants or []) if not v.hidden]
     known_lines = [
         f"- {v.name}: {float(v.weight):g} g" if v.weight is not None else f"- {v.name}: (cosmetic, no weight change)"
@@ -467,12 +615,15 @@ def _call_ai_variant(cp: CatalogProduct, variant_text: str) -> dict | None:
         f"Base weight: {base}\n"
         f"Variants on file:\n" + "\n".join(known_lines) + "\n\n"
         f"User-typed variant text: \"{variant_text}\""
+        + (f"\nWeight users entered for items with this variant: ~{user_median_g:.0f} g" if user_median_g else "")
     )
     response = ai_complete(
         system=VARIANT_SYSTEM_PROMPT,
         user=user,
-        tools=[WEB_SEARCH_TOOL, VARIANT_TOOL_SCHEMA],
-        model=VARIANT_MODEL,
+        tools=[WEB_SEARCH_TOOL, VARIANT_TOOL_SCHEMA] if with_search else [VARIANT_TOOL_SCHEMA],
+        model=DEFAULT_MODEL if with_search else VARIANT_MODEL,
+        thinking=False,
+        label="variant/search" if with_search else "variant/classify",
     )
     for block in response.content:
         if block.type == "tool_use" and block.name == "variant_verdict":
@@ -480,7 +631,7 @@ def _call_ai_variant(cp: CatalogProduct, variant_text: str) -> dict | None:
     return None
 
 
-VARIANT_MODEL = os.environ.get("ENRICH_VARIANT_MODEL", DEFAULT_MODEL)
+VARIANT_MODEL = os.environ.get("ENRICH_VARIANT_MODEL", FAST_MODEL)
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +678,27 @@ def ensure_product(session, brand: Brand, product: Product, variant_hint: str | 
 
     label = f"{brand.name} / {product.name}"
     item_count = _get_item_count(session, brand.id, product.id)
-    result = _call_ai_product(brand.name, product.name, variant_hint)
+
+    junk = is_junk(brand.name, product.name)
+    if junk:
+        logger.info("REJECTED (no model call, %s): %s", junk, label)
+        _insert_rejected(session, brand_name=brand.name, product_name=product.name,
+                         brand_id=brand.id, product_id=product.id, item_count=item_count, confidence=0.0)
+        return None
+
+    median_weight = _get_median_weight(session, brand.id, product.id)
+
+    # Tier 1: recall, no tools. Trusted only when users' weights corroborate.
+    result = None
+    recall = _call_ai_recall(brand.name, product.name, variant_hint)
+    if recall and _recall_is_trustworthy(recall, median_weight):
+        logger.info("TIER1 accepted for %s (weight=%s, users' median=%s)", label,
+                    recall.get("weight_grams"), median_weight)
+        result = recall
+    else:
+        logger.info("TIER1 %s for %s -> web research",
+                    "unsure" if recall else "no result", label)
+        result = _call_ai_product(brand.name, product.name, variant_hint)
     if not result:
         logger.warning("AI returned no result for %s", label)
         return None
@@ -555,7 +726,7 @@ def ensure_product(session, brand: Brand, product: Product, variant_hint: str | 
 
     confidence = compute_confidence(
         ai_result=result, original_product_name=product.name, original_brand_name=brand.name,
-        median_weight=_get_median_weight(session, brand.id, product.id), item_count=item_count,
+        median_weight=median_weight, item_count=item_count,
     )
     product_url = result.get("product_url")
     if confidence < LOW_CONFIDENCE_THRESHOLD:
@@ -600,7 +771,8 @@ def ensure_product(session, brand: Brand, product: Product, variant_hint: str | 
 # Variant step
 # ---------------------------------------------------------------------------
 
-def ensure_variant(session, cp: CatalogProduct, variant_text: str | None) -> CatalogVariant | None:
+def ensure_variant(session, cp: CatalogProduct, variant_text: str | None,
+                   legacy_variant_id: int | None = None) -> CatalogVariant | None:
     """Return the CatalogVariant of `cp` for the user's variant text, asking
     the model only when the text matches nothing on file. Records the
     user's spelling as an alias. Returns None when the text is not a variant."""
@@ -616,10 +788,18 @@ def ensure_variant(session, cp: CatalogProduct, variant_text: str | None) -> Cat
         logger.info("Variant text is a spec, ignored: %r", variant_text)
         return None
 
-    verdict = _call_ai_variant(cp, variant_text)
+    user_median = _variant_user_median_g(session, cp, legacy_variant_id)
+    verdict = _call_ai_variant(cp, variant_text, user_median_g=user_median)
     if not verdict or not verdict.get("is_variant"):
         logger.info("Not a variant per model: %r (%s)", variant_text, cp.display_name)
         return None
+    if verdict.get("affects_weight") and verdict.get("weight_grams") is None:
+        if user_median:
+            verdict["weight_grams"] = round(user_median, 1)   # users' measurements beat a web page
+        else:
+            searched = _call_ai_variant(cp, variant_text, with_search=True)
+            if searched and searched.get("weight_grams") is not None:
+                verdict = searched
     name = (verdict.get("canonical_name") or variant_text).strip()
     cv = resolve_variant(session, cp, name)
     if cv is None:
@@ -698,7 +878,7 @@ def enrich_item(session, item_id: int, on_product_created=None) -> tuple[Catalog
     cp = ensure_product(session, brand, product, variant_text, on_product_created)
     if cp is None:
         return None, None
-    cv = ensure_variant(session, cp, variant_text)
+    cv = ensure_variant(session, cp, variant_text, legacy_variant.id if legacy_variant else None)
 
     item = session.query(Item).get(item_id)   # refresh after commits
     if not item.catalog_locked:
