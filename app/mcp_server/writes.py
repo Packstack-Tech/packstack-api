@@ -446,7 +446,8 @@ def register_write_tools(mcp: MCPServer) -> None:
         "REFUSES and lists the candidates (with catalog_product_id / item_id) so you can pick one "
         "or use the existing item. Pass `create_new_product: true` only after confirming with the "
         "user that it really is a new product. `weight` is in `unit` (g | kg | oz | lb; defaults "
-        "to the user's unit). `category` is a name (created if new). Requires a subscription.",
+        "to the user's unit). `category` is a name (created if new). `owned_quantity` is how many the "
+        "user owns (default 1) and drives the over-pack check. Requires a subscription.",
     )
     async def create_item(
         name: str,
@@ -464,6 +465,7 @@ def register_write_tools(mcp: MCPServer) -> None:
         product_url: Optional[str] = None,
         notes: Optional[str] = None,
         create_new_product: bool = False,
+        owned_quantity: int = 1,
     ) -> dict[str, Any]:
         def work():
             caller = require_writer()
@@ -472,10 +474,12 @@ def register_write_tools(mcp: MCPServer) -> None:
             unit_ = (unit or caller.unit).lower()
             if unit_ not in UNIT_VALUES:
                 raise ToolError("unit must be one of g, kg, oz, lb.")
+            if int(owned_quantity) < 1:
+                raise ToolError("owned_quantity must be at least 1.")
 
             item = Item(user_id=caller.user.id, name=name.strip(), unit=unit_, consumable=bool(consumable),
                         calories=calories, price=price, product_url=(product_url or "").strip() or None,
-                        notes=(notes or "").strip() or None, weight=weight)
+                        notes=(notes or "").strip() or None, weight=weight, quantity=int(owned_quantity))
 
             if catalog_product_id is not None:
                 cat = db.session.query(CatalogProduct).filter_by(id=catalog_product_id, status="approved").first()
@@ -551,7 +555,8 @@ def register_write_tools(mcp: MCPServer) -> None:
     @write_tool(
         "update_item",
         "Edit a gear item's own fields: name, weight (+unit), category (by name), consumable flag, "
-        "calories, price, product_url, notes. Only passed fields change; pass an empty string to "
+        "calories, price, product_url, notes, owned_quantity (how many the user owns, >= 1). Only "
+        "passed fields change; pass an empty string to "
         "clear notes or product_url. This is where to fix a mis-flagged consumable or a wrong "
         "weight. To change brand/product, create a new item instead. Requires a subscription.",
         WRITE_IDEMPOTENT,
@@ -567,11 +572,16 @@ def register_write_tools(mcp: MCPServer) -> None:
         price: Optional[float] = None,
         product_url: Optional[str] = None,
         notes: Optional[str] = None,
+        owned_quantity: Optional[int] = None,
     ) -> dict[str, Any]:
         def work():
             caller = require_writer()
             item = _own_items(caller, [item_id])[item_id]
             changed = []
+            if owned_quantity is not None:
+                if int(owned_quantity) < 1:
+                    raise ToolError("owned_quantity must be at least 1.")
+                item.quantity = int(owned_quantity); changed.append("owned_quantity")
             if name is not None and name.strip():
                 item.name = name.strip(); changed.append("name")
             if unit is not None:

@@ -41,6 +41,11 @@ class ItemType(BaseModel):
     weight: Optional[float] = None
     unit: Optional[str] = None
     price: Optional[float] = None
+    # Owned quantity. None means "not sent" — create falls back to the model
+    # default (1) and update leaves the stored value alone. Clients that
+    # predate the field omit it on every PUT, so None must never reach the
+    # row or every edit from an old build would wipe the user's count.
+    quantity: Optional[int] = None
     calories: Optional[float] = None
     consumable: bool = False
     product_url: Optional[str] = None
@@ -66,6 +71,23 @@ class ItemType(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def quantity_positive_int(cls, v):
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            return None
+        if isinstance(v, bool):
+            raise ValueError("quantity must be a whole number of at least 1")
+        if isinstance(v, float) and not v.is_integer():
+            raise ValueError("quantity must be a whole number of at least 1")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError("quantity must be a whole number of at least 1")
+        if n < 1:
+            raise ValueError("quantity must be a whole number of at least 1")
+        return n
 
 
 def _derive_catalog_link(session, item) -> tuple[int | None, int | None]:
@@ -116,6 +138,8 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
     item_data.pop("category_new")
     pick_product = item_data.pop("catalog_product_id")
     pick_variant = item_data.pop("catalog_variant_id")
+    if item_data.get("quantity") is None:
+        item_data.pop("quantity", None)   # model default -> 1
 
     new_item = Item(user_id=user.id, **item_data)
     db.session.add(new_item)
@@ -159,6 +183,8 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     fields.pop("category_new")
     pick_product = fields.pop("catalog_product_id")
     pick_variant = fields.pop("catalog_variant_id")
+    if fields.get("quantity") is None:
+        fields.pop("quantity", None)   # omitted == unchanged, never null
 
     item = db.session.query(Item).filter_by(
         id=payload.id, user_id=user.id).first()
@@ -529,9 +555,24 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         price = row.get("price", None)
         consumable = row.get("consumable", None)
         notes = row.get("notes", None)
+        # Owned quantity. Optional column; blank -> 1. This is the Packstack
+        # CSV (round-trips our own export); the separate LighterPack import
+        # deliberately leaves `qty` alone because there it is a pack quantity.
+        quantity_raw = row.get("quantity") or row.get("owned_quantity") or row.get("qty")
 
         if not name:
             continue
+
+        quantity = 1
+        if quantity_raw:
+            try:
+                quantity = int(float(quantity_raw))
+            except (ValueError, TypeError):
+                errors.append(generate_error(i, "Invalid quantity value."))
+                continue
+            if quantity < 1:
+                errors.append(generate_error(i, "Quantity must be at least 1."))
+                continue
 
         if unit:
             try:
@@ -591,6 +632,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
                             product_id=product_id,
                             category_id=category_id,
                             name=name,
+                            quantity=quantity,
                             weight=weight,
                             unit=unit,
                             price=price,

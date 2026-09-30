@@ -184,7 +184,8 @@ def fetch_ai_review(trip_id: str):
     trip = _resolve_trip(trip_id)
 
     user = db.session.query(User.unit_distance,
-                            User.unit_temperature).filter_by(id=trip.user_id).first()
+                            User.unit_temperature,
+                            User.overpack_include_consumables).filter_by(id=trip.user_id).first()
     if not user:
         raise HTTPException(404, "Trip owner not found.")
 

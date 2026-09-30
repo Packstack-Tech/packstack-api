@@ -9,6 +9,7 @@ from models.base import User, Pack, PackItem, Trip
 from utils.auth import authenticate
 from utils.consts import FREE_PACKS_PER_TRIP
 from utils.pack_summary import serialize_pack, serialize_pack_public
+from utils.overpack import overpacked_items
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,26 @@ def get_trip_packs(trip_id: int, user: User = Depends(authenticate)):
 
     trip_packs = db.session.query(Pack).filter_by(trip_id=trip_id).all()
     return [serialize_pack(p) for p in trip_packs]
+
+
+@route.get("/trip/{trip_id}/overpacked")
+def get_trip_overpacked(trip_id: int, user: User = Depends(authenticate)):
+    """Items packed across this trip's packs in greater quantity than the
+    user owns, honoring the user's consumables setting. Purely informational:
+    the clients compute the same thing locally, and this never gates a write.
+    Kept as its own endpoint so /pack/trip/{id} stays a plain list for old
+    clients."""
+    trip = db.session.query(Trip).filter_by(id=trip_id, user_id=user.id).first()
+    if not trip:
+        raise HTTPException(404, "Trip not found.")
+
+    trip_packs = db.session.query(Pack).filter_by(trip_id=trip_id).all()
+    flagged = overpacked_items(trip_packs, include_consumables=user.overpack_include_consumables)
+    return {
+        "mode": user.overpack_mode,
+        "include_consumables": user.overpack_include_consumables,
+        "items": [{"item_id": k, **v} for k, v in flagged.items()],
+    }
 
 
 @route.get("/{id}")

@@ -27,6 +27,8 @@ Design notes:
 from datetime import date
 from typing import Iterable, Optional
 
+from utils.overpack import overpacked_items
+
 CONVERSION_TO_GRAMS = {"g": 1.0, "kg": 1000.0, "oz": 28.3495, "lb": 453.592}
 OZ_PER_GRAM = 1 / 28.3495
 
@@ -286,7 +288,8 @@ def build_ai_review_markdown(trip, packs: list, user, public_url: Optional[str] 
     """Return the full markdown document for a trip and its packs.
 
     `user` only needs `.unit_distance` and `.unit_temperature` (the trip
-    owner's display preferences). Packs with no items are still listed so the
+    owner's display preferences); `.overpack_include_consumables` is read
+    when present. Packs with no items are still listed so the
     reviewer knows they exist.
     """
     title = trip.location or trip.title
@@ -346,6 +349,24 @@ def build_ai_review_markdown(trip, packs: list, user, public_url: Optional[str] 
         "totals, so treat them as an unknown.",
         "",
     ]
+
+    # Over-packed ------------------------------------------------------
+    # Honors the owner's consumables setting when the caller passed a user
+    # row that has it; a column-only query (see /ai-review) falls back to
+    # checking everything, matching the account default.
+    include_consumables = getattr(user, "overpack_include_consumables", None)
+    flagged = overpacked_items(packs, include_consumables=include_consumables is not False)
+    if flagged:
+        lines += ["## Packed more than owned", ""]
+        lines.append(
+            "The owner's gear closet records how many of each item they own. "
+            "These items are packed across the trip in greater quantity than "
+            "that -- either a data-entry slip or a duplicate carry worth asking about."
+        )
+        lines.append("")
+        for entry in sorted(flagged.values(), key=lambda e: e["name"].lower()):
+            lines.append(f"- **{entry['name']}** -- packed {_fmt_num(entry['packed'], 2)}, owns {entry['owned']}")
+        lines.append("")
 
     # Gear -------------------------------------------------------------
     lines += ["## Gear", ""]

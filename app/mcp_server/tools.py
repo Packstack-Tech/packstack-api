@@ -25,6 +25,7 @@ from mcp_server.context import (
     Caller, ToolError, current_caller, item_summary, run_sync, to_grams, weight_fields,
 )
 from utils.ai_review import build_ai_review_markdown
+from utils.overpack import overpacked_items
 from utils.consts import FREE_TIER_UNLIMITED, FREE_PACKS_PER_TRIP
 from api.trip import FREE_TRIP_LIMIT
 
@@ -259,9 +260,13 @@ def register_read_tools(mcp: MCPServer) -> None:
                                               public_url=f"https://packstack.io/pack/{trip.uuid}" if trip.uuid else None)
                 return {"trip_id": trip.id, "format": "markdown", "markdown": md}
             all_items = [pi for p in packs for pi in p.items]
+            flagged = overpacked_items(packs, include_consumables=caller.user.overpack_include_consumables)
             return {
                 "trip": _trip_header(trip, caller.user),
                 "totals_all_packs": _pack_totals(all_items, caller),
+                # Items packed across the trip in greater quantity than the closet
+                # says the user owns. Informational; nothing refuses the add.
+                "overpacked": [{"item_id": k, **v} for k, v in flagged.items()],
                 "packs": [_pack_detail(p, caller) for p in packs],
             }
         return await run_sync(work)

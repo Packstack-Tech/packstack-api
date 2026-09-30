@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from pydantic import BaseModel
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
-from typing import Optional
+from typing import Literal, Optional
 
 from models.base import (
     User, EmailVerification, AuthOtp,
@@ -779,6 +779,10 @@ class UserUpdate(BaseModel):
     unit_distance: Optional[str] = None
     unit_temperature: Optional[str] = None
     currency: Optional[str] = None
+    # Over-pack check. Omitted (None) leaves the stored value alone, which the
+    # exclude_none dump below already guarantees for clients that predate it.
+    overpack_mode: Optional[Literal["off", "warn", "block"]] = None
+    overpack_include_consumables: Optional[bool] = None
     facebook_url: Optional[str] = None
     instagram_url: Optional[str] = None
     youtube_url: Optional[str] = None

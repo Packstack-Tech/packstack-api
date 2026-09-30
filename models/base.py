@@ -48,6 +48,14 @@ class User(Base):
     currency = Column(String(10), default="USD")
     hide_table_headers = Column(Boolean, default=False)
 
+    # Over-pack check (a trip packing more of an item than the user owns).
+    # 'off' | 'warn' | 'block'. Enforced by clients only; the API never
+    # rejects a pack write for it. See api/migrations/gear_quantity.sql.
+    overpack_mode = Column(String(10), default="warn", nullable=False,
+                           server_default="warn")
+    overpack_include_consumables = Column(Boolean, default=True, nullable=False,
+                                          server_default="true")
+
     # Social profiles
     instagram_url = Column(String(500))
     facebook_url = Column(String(500))
@@ -109,6 +117,8 @@ class User(Base):
             "unit_distance": self.unit_distance,
             "unit_temperature": self.unit_temperature,
             "currency": self.currency,
+            "overpack_mode": self.overpack_mode,
+            "overpack_include_consumables": self.overpack_include_consumables,
             "banned": self.banned,
             "deactivated": self.deactivated,
             "email_verified": self.email_verified,
@@ -148,6 +158,9 @@ class Item(Base):
     weight = Column(Numeric)
     unit = Column(String(10))
     price = Column(Numeric)
+    # How many of this item the user owns. Always >= 1. Multiplies closet
+    # value, not closet weight; the per-pack carried count is PackItem.quantity.
+    quantity = Column(Integer, default=1, nullable=False, server_default="1")
     calories = Column(Numeric, nullable=True)
     consumable = Column(Boolean, default=False)
     product_url = Column(String(1000))

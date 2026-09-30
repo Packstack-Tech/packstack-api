@@ -111,6 +111,7 @@ def item_summary(item, caller: Caller) -> dict:
         "weight": weight_fields(grams, caller),
         "weight_entered": item.weight is not None,
         "consumable": bool(item.consumable),
+        "owned_quantity": int(item.quantity or 1),
         "calories": float(item.calories) if item.calories else None,
         "price": float(item.price) if item.price else None,
         "notes": item.notes or None,
