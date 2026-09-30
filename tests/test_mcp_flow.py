@@ -511,3 +511,76 @@ def test_subscriber_full_write_flow(client, user):
     # ownership: someone else's ids are refused
     res = _call(client, token, "rename_pack", {"pack_id": 999999999, "title": "x"})
     assert res["isError"] is True and "not found" in res["content"][0]["text"].lower()
+
+
+def test_update_item_identity(client, user):
+    """update_item can change brand / product / variant (free text or catalog
+    pick) in place: same item_id, same pack membership, weight untouched."""
+    _set_subscribed(user["id"], True)
+    token = _token_for(client, user, "packstack:read packstack:write")
+    sfx = secrets.token_hex(3)
+
+    def err(res):
+        assert res["isError"] is True, res
+        return res["content"][0]["text"]
+
+    def ok(res):
+        assert res.get("isError") is not True, res
+        return res["structuredContent"]
+
+    from fastapi_sqlalchemy import db
+    from models.base import CatalogProduct, CatalogVariant, Item
+    from models.keys import canonical_variant_key
+    with db():
+        cp = CatalogProduct(brand_name=f"Trailmark{sfx}", product_name="Ridge Quilt", variant_name=None,
+                            display_name=f"Trailmark{sfx} Ridge Quilt", weight=560, weight_unit="g",
+                            status="approved", category_suggestion="Sleep")
+        db.session.add(cp); db.session.flush()
+        cv_long = CatalogVariant(catalog_product_id=cp.id, name="Long", name_key=canonical_variant_key("Long"),
+                                 weight=610, weight_unit="g")
+        db.session.add(cv_long); db.session.commit()
+        cp_id, cv_long_id = cp.id, cv_long.id
+
+    # Free-text brand/product/variant on an item with none.
+    quilt = ok(_call(client, token, "create_item", {"name": "Quilt", "weight": 20, "unit": "oz"}))
+    qid = quilt["item_id"]
+    res = ok(_call(client, token, "update_item", {"item_id": qid, "brand": f"Hollowfill{sfx}",
+                                                  "product": "Loft 30", "variant": "Regular"}))
+    assert res["item_id"] == qid
+    assert res["brand"] == f"Hollowfill{sfx}" and res["product"] == "Loft 30 Regular"
+    assert {"brand", "product", "variant"} <= set(res["updated_fields"])
+    assert abs(res["weight"]["grams"] - 20 * 28.3495) < 1
+
+    # Variant only; echoing unchanged identity is not a change.
+    res = ok(_call(client, token, "update_item", {"item_id": qid, "variant": "Long"}))
+    assert res["product"] == "Loft 30 Long" and res["updated_fields"] == ["variant"]
+    assert "Nothing to update" in err(_call(client, token, "update_item", {"item_id": qid, "brand": f"hollowfill{sfx}"}))
+
+    # Free text resembling a catalog product is refused with the candidate listed.
+    txt = err(_call(client, token, "update_item", {"item_id": qid, "brand": f"trailmark{sfx}", "product": "ridge quilt"}))
+    assert f"catalog_product_id {cp_id}" in txt and f"item_id {qid}" not in txt
+
+    # Catalog pick: identity from the catalog, link locked, existing weight kept.
+    res = ok(_call(client, token, "update_item", {"item_id": qid, "catalog_product_id": cp_id}))
+    assert res["brand"] == f"Trailmark{sfx}" and res["product"] == "Ridge Quilt"
+    assert abs(res["weight"]["grams"] - 20 * 28.3495) < 1
+    assert "catalog_product" in res["updated_fields"]
+
+    # Variant switch within the paired catalog product, by id and by clearing text.
+    res = ok(_call(client, token, "update_item", {"item_id": qid, "catalog_variant_id": cv_long_id}))
+    assert res["product"] == "Ridge Quilt Long"
+    res = ok(_call(client, token, "update_item", {"item_id": qid, "variant": ""}))
+    assert res["product"] == "Ridge Quilt"
+    with db():
+        it = db.session.get(Item, qid)
+        assert it.catalog_product_id == cp_id and it.catalog_variant_id is None and it.catalog_locked
+
+    # Guards.
+    assert "not both" in err(_call(client, token, "update_item", {"item_id": qid, "catalog_product_id": cp_id, "brand": "X"}))
+    stove = ok(_call(client, token, "create_item", {"name": "Pot", "weight": 100, "unit": "g"}))
+    assert "needs a brand" in err(_call(client, token, "update_item", {"item_id": stove["item_id"], "product": "Solo"}))
+    assert "isn't paired" in err(_call(client, token, "update_item", {"item_id": stove["item_id"], "catalog_variant_id": cv_long_id}))
+
+    # Clearing brand clears product and variant too.
+    res = ok(_call(client, token, "update_item", {"item_id": qid, "brand": ""}))
+    assert res["brand"] is None and res["product"] is None

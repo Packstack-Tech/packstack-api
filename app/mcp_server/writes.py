@@ -143,6 +143,141 @@ def _own_items(caller: Caller, item_ids: list[int]) -> dict[int, Item]:
     return found
 
 
+def _apply_catalog_pick(item: Item, catalog_product_id: int, catalog_variant_id: Optional[int],
+                        variant: Optional[str]) -> None:
+    """Pair an item with an approved catalog product (and optionally one of its
+    variants). Brand/product/variant come from the catalog, the link is locked
+    as the user's explicit choice, and weight / kcal / product_url fill in only
+    where the item has none. Shared by create_item and update_item."""
+    cat = db.session.query(CatalogProduct).filter_by(id=catalog_product_id, status="approved").first()
+    if cat is None:
+        raise ToolError(f"catalog_product_id {catalog_product_id} was not found. Use search_catalog.")
+    item.brand_id = cat.brand_id or resolve_brand(db.session, cat.brand_name)
+    item.product_id = cat.product_id or resolve_product(db.session, cat.product_name, item.brand_id)
+    item.catalog_product_id = cat.id
+    item.catalog_locked = True   # explicit pick is the user's choice
+    cv = None
+    if catalog_variant_id is not None:
+        cv = db.session.query(CatalogVariant).filter_by(
+            id=catalog_variant_id, catalog_product_id=cat.id, hidden=False).first()
+        if cv is None:
+            raise ToolError(f"catalog_variant_id {catalog_variant_id} is not a variant of that product.")
+    elif variant:
+        cv = resolve_catalog_variant(db.session, cat, variant)
+    if cv is not None:
+        item.catalog_variant_id = cv.id
+        item.product_variant_id = resolve_product_variant(db.session, cv.name, item.product_id)
+    else:
+        item.catalog_variant_id = None
+        item.product_variant_id = (resolve_product_variant(db.session, variant, item.product_id)
+                                   if variant else None)
+    # Prefill from the catalog: variant weight/kcal override the base.
+    w, wu = (cv.weight, cv.weight_unit) if (cv is not None and cv.weight is not None) else (cat.weight, cat.weight_unit)
+    if item.weight is None and w:
+        item.weight = float(w)
+        item.unit = wu or "g"
+    if not item.product_url and cat.product_url:
+        item.product_url = cat.product_url
+    kcal = cv.kcal if (cv is not None and cv.kcal is not None) else cat.kcal
+    if item.calories is None and kcal:
+        item.calories = kcal
+
+
+def _update_identity(caller: Caller, item: Item, catalog_product_id: Optional[int],
+                     catalog_variant_id: Optional[int], brand: Optional[str], product: Optional[str],
+                     variant: Optional[str], create_new_product: bool,
+                     changed: list[str]) -> tuple[bool, Optional[str]]:
+    """Apply update_item's brand/product/variant/catalog arguments to `item`.
+
+    Mirrors REST PUT /item: an explicit catalog pick locks the link; a
+    free-text change re-derives the link unless the item is locked. Appends
+    to `changed` and returns (identity_changed, note)."""
+    old = (item.brand_id, item.product_id, item.product_variant_id,
+           item.catalog_product_id, item.catalog_variant_id)
+    cur_b = item.brand.name if item.brand else None
+    cur_p = item.product.name if item.product else None
+    cur_v = item.product_variant.name if item.product_variant else None
+
+    def diff():
+        new = (item.brand_id, item.product_id, item.product_variant_id,
+               item.catalog_product_id, item.catalog_variant_id)
+        for label, a, b in (("brand", old[0], new[0]), ("product", old[1], new[1]),
+                            ("variant", old[2], new[2])):
+            if a != b:
+                changed.append(label)
+        if old[3:] != new[3:]:
+            changed.append("catalog_product")
+        return old[:3] != new[:3]
+
+    # Explicit catalog pick; a lone catalog_variant_id (or variant text) on an
+    # item already locked to a catalog product re-picks within that product so
+    # the variant link can't go stale.
+    pick = catalog_product_id
+    if pick is None and catalog_variant_id is not None:
+        if not item.catalog_product_id:
+            raise ToolError("This item isn't paired with a catalog product. Pass catalog_product_id "
+                            "together with catalog_variant_id (use search_catalog).")
+        pick = item.catalog_product_id
+    if (pick is None and variant is not None and brand is None and product is None
+            and item.catalog_locked and item.catalog_product_id):
+        if variant.strip():
+            pick = item.catalog_product_id
+        else:
+            item.product_variant_id = None
+            item.catalog_variant_id = None
+            return diff(), None
+    if pick is not None:
+        _apply_catalog_pick(item, pick, catalog_variant_id, (variant or "").strip() or None)
+        return diff(), None
+
+    if brand is None and product is None and variant is None:
+        return False, None
+
+    new_b = cur_b if brand is None else (brand.strip() or None)
+    new_p = cur_p if product is None else (product.strip() or None)
+    new_v = cur_v if variant is None else (variant.strip() or None)
+    if not new_b:
+        if product is not None and product.strip():
+            raise ToolError("A product needs a brand. Pass brand too.")
+        new_p = None
+    if not new_p:
+        if variant is not None and variant.strip():
+            raise ToolError("A variant needs a product. Pass product (and brand) too.")
+        new_v = None
+
+    def same(a, b):
+        return (a or "").strip().lower() == (b or "").strip().lower()
+    if same(new_b, cur_b) and same(new_p, cur_p) and same(new_v, cur_v):
+        return False, None   # echoed back unchanged
+
+    if new_b and new_p and not create_new_product and not (same(new_b, cur_b) and same(new_p, cur_p)):
+        candidates = _duplicate_candidates(caller, new_b, new_p, new_v, exclude_item_id=item.id)
+        if candidates:
+            raise ToolError(
+                "This looks like it may already exist. " + candidates +
+                " Pass catalog_product_id to pair this item with a catalog product, or pass "
+                "create_new_product=true if it is really a different product."
+            )
+
+    item.brand_id = resolve_brand(db.session, new_b) if new_b else None
+    item.product_id = resolve_product(db.session, new_p, item.brand_id) if new_p else None
+    item.product_variant_id = (resolve_product_variant(db.session, new_v, item.product_id)
+                               if new_v else None)
+    identity_changed = (item.brand_id, item.product_id, item.product_variant_id) != old[:3]
+    note = None
+    if identity_changed and not item.catalog_locked:
+        db.session.flush()
+        db.session.refresh(item)
+        item.catalog_product_id, item.catalog_variant_id = _derive_catalog_link(db.session, item)
+        if item.brand_id and item.product_id and not item.catalog_product_id:
+            note = "New product recorded; Packstack will research it in the background."
+    elif identity_changed and item.catalog_product_id:
+        note = ("This item stays paired with the catalog product the user chose earlier. Pass "
+                "catalog_product_id (from search_catalog) to re-pair it.")
+    diff()
+    return identity_changed, note
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -486,36 +621,7 @@ def register_write_tools(mcp: MCPServer) -> None:
                         notes=(notes or "").strip() or None, weight=weight, quantity=int(owned_quantity))
 
             if catalog_product_id is not None:
-                cat = db.session.query(CatalogProduct).filter_by(id=catalog_product_id, status="approved").first()
-                if cat is None:
-                    raise ToolError(f"catalog_product_id {catalog_product_id} was not found. Use search_catalog.")
-                item.brand_id = cat.brand_id or resolve_brand(db.session, cat.brand_name)
-                item.product_id = cat.product_id or resolve_product(db.session, cat.product_name, item.brand_id)
-                item.catalog_product_id = cat.id
-                item.catalog_locked = True   # explicit pick is the user's choice
-                cv = None
-                if catalog_variant_id is not None:
-                    cv = db.session.query(CatalogVariant).filter_by(
-                        id=catalog_variant_id, catalog_product_id=cat.id, hidden=False).first()
-                    if cv is None:
-                        raise ToolError(f"catalog_variant_id {catalog_variant_id} is not a variant of that product.")
-                elif variant:
-                    cv = resolve_catalog_variant(db.session, cat, variant)
-                if cv is not None:
-                    item.catalog_variant_id = cv.id
-                    item.product_variant_id = resolve_product_variant(db.session, cv.name, item.product_id)
-                elif variant:
-                    item.product_variant_id = resolve_product_variant(db.session, variant, item.product_id)
-                # Prefill from the catalog: variant weight/kcal override the base.
-                w, wu = (cv.weight, cv.weight_unit) if (cv is not None and cv.weight is not None) else (cat.weight, cat.weight_unit)
-                if item.weight is None and w:
-                    item.weight = float(w)
-                    item.unit = wu or "g"
-                if not item.product_url and cat.product_url:
-                    item.product_url = cat.product_url
-                kcal = cv.kcal if (cv is not None and cv.kcal is not None) else cat.kcal
-                if item.calories is None and kcal:
-                    item.calories = kcal
+                _apply_catalog_pick(item, catalog_product_id, catalog_variant_id, variant)
                 dedupe_note = None
             elif brand and product:
                 candidates = _duplicate_candidates(caller, brand, product, variant)
@@ -559,10 +665,18 @@ def register_write_tools(mcp: MCPServer) -> None:
     @write_tool(
         "update_item",
         "Edit a gear item's own fields: name, weight (+unit), category (by name), consumable flag, "
-        "calories, price, product_url, notes, owned_quantity (how many the user owns, >= 1). Only "
-        "passed fields change; pass an empty string to "
-        "clear notes or product_url. This is where to fix a mis-flagged consumable or a wrong "
-        "weight. To change brand/product, create a new item instead. Requires a subscription.",
+        "calories, price, product_url, notes, owned_quantity (how many the user owns, >= 1), and "
+        "what the item is — brand, product and variant. Only passed fields change; pass an empty "
+        "string to clear notes, product_url, brand, product or variant (clearing brand clears "
+        "product and variant; a product needs a brand). To say what the item is, prefer "
+        "`catalog_product_id` from search_catalog (plus `catalog_variant_id` or `variant`): brand, "
+        "product and variant are then taken from the catalog; `catalog_variant_id` alone switches "
+        "the variant of the catalog product the item is already paired with. Free-text `brand` / "
+        "`product` that resemble a catalog product or another closet item are REFUSED with the "
+        "candidates listed, as in create_item; pass `create_new_product: true` only after the user "
+        "confirms it really is different. The item keeps its item_id, packs, kits and history. "
+        "Changing what the item is never overwrites a weight the item already has — pass `weight` "
+        "to change it. Requires a subscription.",
         WRITE_IDEMPOTENT,
     )
     async def update_item(
@@ -577,10 +691,18 @@ def register_write_tools(mcp: MCPServer) -> None:
         product_url: Optional[str] = None,
         notes: Optional[str] = None,
         owned_quantity: Optional[int] = None,
+        catalog_product_id: Optional[int] = None,
+        catalog_variant_id: Optional[int] = None,
+        brand: Optional[str] = None,
+        product: Optional[str] = None,
+        variant: Optional[str] = None,
+        create_new_product: bool = False,
     ) -> dict[str, Any]:
         def work():
             caller = require_writer()
             item = _own_items(caller, [item_id])[item_id]
+            if catalog_product_id is not None and (brand is not None or product is not None):
+                raise ToolError("Pass either catalog_product_id or free-text brand/product, not both.")
             changed = []
             if owned_quantity is not None:
                 if int(owned_quantity) < 1:
@@ -611,12 +733,23 @@ def register_write_tools(mcp: MCPServer) -> None:
                 item.product_url = product_url.strip() or None; changed.append("product_url")
             if notes is not None:
                 item.notes = notes.strip() or None; changed.append("notes")
+            # Identity last, so a catalog weight only fills in when the item
+            # still has none after this call's own `weight`.
+            identity_changed, note = _update_identity(
+                caller, item, catalog_product_id, catalog_variant_id, brand, product, variant,
+                create_new_product, changed)
             if not changed:
                 raise ToolError("Nothing to update — pass at least one field.")
             db.session.commit()
             db.session.refresh(item)
+            if identity_changed and item.brand_id and item.product_id and not item.catalog_locked:
+                # Enrich even when a product matched: the variant may be new (as REST PUT /item).
+                from tasks.enrich_product import enrich_product
+                _enqueue(enrich_product, item.id)
             out = item_summary(item, caller)
             out["updated_fields"] = changed
+            if note:
+                out["note"] = note
             return out
         return await run_sync(work)
 
@@ -860,7 +993,8 @@ def _parse_pack_item_specs(items: list[dict[str, Any]], allow_checked: bool = Fa
     return specs
 
 
-def _duplicate_candidates(caller: Caller, brand: str, product: str, variant: Optional[str]) -> str:
+def _duplicate_candidates(caller: Caller, brand: str, product: str, variant: Optional[str],
+                          exclude_item_id: Optional[int] = None) -> str:
     """Human-readable list of likely duplicates, or '' when none.
 
     Matching uses the same normalization as the catalog enrichment task
@@ -887,8 +1021,8 @@ def _duplicate_candidates(caller: Caller, brand: str, product: str, variant: Opt
 
     closet = [i for i in db.session.query(Item).filter_by(user_id=caller.user.id, deleted=False)
               .options(noload(Item.catalog_product)).all()
-              if (i.brand and normalize_brand(i.brand.name) == b_key and i.product and product_matches(i.product.name))
-              or normalize_name(i.name) == b_key + p_key][:6]
+              if i.id != exclude_item_id and ((i.brand and normalize_brand(i.brand.name) == b_key and i.product and product_matches(i.product.name))
+              or normalize_name(i.name) == b_key + p_key)][:6]
     if not cats and not closet:
         return ""
     parts = []
