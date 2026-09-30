@@ -1,11 +1,13 @@
-CONVERSION_TO_GRAMS = {"g": 1, "kg": 1000, "oz": 28.3495, "lb": 453.592}
+from utils.pack_weight import CONVERSION_TO_GRAMS, effective_worn, pack_quantity, split_weight  # noqa: F401
 
 
 def compute_pack_summary(pack):
     """Compute weight_breakdown and category_weights for a Pack.
 
     All values are returned in grams so the backend stays
-    unit-preference-agnostic. Clients convert for display.
+    unit-preference-agnostic. Clients convert for display. The base / worn /
+    consumable split is utils.pack_weight.split_weight -- the same rule the
+    AI export, MCP and every client use.
     """
     breakdown = {"base_g": 0.0, "worn_g": 0.0, "consumable_g": 0.0, "total_g": 0.0}
     category_totals = {}
@@ -13,15 +15,13 @@ def compute_pack_summary(pack):
 
     for pi in pack.items:
         item = pi.item
-        qty = float(pi.quantity or 1)
-        weight_g = float(item.weight or 0) * CONVERSION_TO_GRAMS.get(item.unit, 1)
-        qty_weight_g = weight_g * qty
+        qty = pack_quantity(pi)
+        parts = split_weight(pi)
 
-        breakdown["total_g"] += qty_weight_g
-        if pi.worn:
-            breakdown["worn_g"] += weight_g
-        if item.consumable:
-            breakdown["consumable_g"] += qty_weight_g
+        breakdown["total_g"] += parts["total"]
+        breakdown["worn_g"] += parts["worn"]
+        breakdown["consumable_g"] += parts["consumable"]
+        breakdown["base_g"] += parts["base"]
 
         total_calories += float(item.calories or 0) * qty
 
@@ -30,9 +30,7 @@ def compute_pack_summary(pack):
             if item.category and item.category.category
             else "Uncategorized"
         )
-        category_totals[cat_name] = category_totals.get(cat_name, 0) + qty_weight_g
-
-    breakdown["base_g"] = breakdown["total_g"] - (breakdown["worn_g"] + breakdown["consumable_g"])
+        category_totals[cat_name] = category_totals.get(cat_name, 0) + parts["total"]
 
     category_weights = [
         {"label": label, "weight_g": round(weight, 2)}
@@ -87,6 +85,7 @@ def serialize_pack_public(pack):
                 "item_id": pi.item_id,
                 "quantity": float(pi.quantity) if pi.quantity else 1,
                 "worn": pi.worn,
+                "worn_quantity": effective_worn(pi),
                 "sort_order": float(pi.sort_order) if pi.sort_order else 0,
                 "item": _serialize_item_public(pi.item),
             }

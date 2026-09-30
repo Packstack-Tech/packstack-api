@@ -47,8 +47,8 @@ RESOURCE_METADATA_URL = f"{MCP_ISSUER}/.well-known/oauth-protected-resource/mcp"
 
 SERVER_INSTRUCTIONS = """Packstack is a gear inventory and packing-list app for backpackers.
 A user has one gear closet (their owned items), trips (each with dates, location and conditions),
-and one or more packs per trip (the list of closet items actually carried, with quantity and a
-worn flag). Kits are reusable bundles of closet items. Weights in results always include grams
+and one or more packs per trip (the list of closet items actually carried, with quantity and how
+many of those units are worn — e.g. 1 of 5 shirts; the rest count toward base weight). Kits are reusable bundles of closet items. Weights in results always include grams
 and the user's preferred display unit — use the display unit when talking to the user and grams
 when doing arithmetic. Call get_me first to learn the user's units and subscription status.
 Editing requires a Packstack subscription; read access is always available."""

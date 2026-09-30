@@ -49,6 +49,7 @@ from utils.entity_helpers import (
 from utils.item_category import get_or_create_item_category
 from models.keys import normalize_brand, normalize_name
 from utils.utils import clone_model
+from utils.pack_weight import effective_worn, normalize_worn
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +273,8 @@ def register_write_tools(mcp: MCPServer) -> None:
                 db.session.flush()
                 for pi in pack.items:
                     db.session.add(PackItem(pack_id=new_pack.id, item_id=pi.item_id, quantity=pi.quantity,
-                                            worn=pi.worn, checked=False, sort_order=pi.sort_order))
+                                            worn=pi.worn, worn_quantity=effective_worn(pi),
+                                            checked=False, sort_order=pi.sort_order))
             db.session.commit()
             db.session.refresh(new_trip)
             packs = _packs_query(new_trip.id).all()
@@ -300,7 +302,8 @@ def register_write_tools(mcp: MCPServer) -> None:
                 src = _own_pack(caller, copy_from_pack_id)
                 for pi in db.session.query(PackItem).filter_by(pack_id=src.id).all():
                     db.session.add(PackItem(pack_id=pack.id, item_id=pi.item_id, quantity=pi.quantity,
-                                            worn=pi.worn, checked=False, sort_order=pi.sort_order))
+                                            worn=pi.worn, worn_quantity=effective_worn(pi),
+                                            checked=False, sort_order=pi.sort_order))
             db.session.commit()
             return _fresh_pack_detail(pack, caller)
         return await run_sync(work)
@@ -323,7 +326,9 @@ def register_write_tools(mcp: MCPServer) -> None:
 
     @write_tool(
         "add_items_to_pack",
-        "Add gear-closet items to a pack. `items` is a list of {item_id, quantity?, worn?}. An "
+        "Add gear-closet items to a pack. `items` is a list of {item_id, quantity?, worn?, "
+        "worn_quantity?}. `worn_quantity` is how many units are worn (e.g. 1 of 5 shirts, 2 of 2 "
+        "trekking poles); `worn: true` alone means one unit. An "
         "item already in the pack has its quantity/worn updated rather than duplicated. Use "
         "search_gear to find item_ids; use create_item first if the gear isn't in the closet yet. "
         "Requires a subscription.",
@@ -342,14 +347,13 @@ def register_write_tools(mcp: MCPServer) -> None:
                 pi = existing.get(s["item_id"])
                 if pi is None:
                     max_sort += 1
-                    db.session.add(PackItem(pack_id=pack.id, item_id=s["item_id"], quantity=s.get("quantity", 1),
-                                            worn=bool(s.get("worn", False)), checked=False, sort_order=max_sort))
+                    qty = s.get("quantity", 1)
+                    wq, worn = normalize_worn(qty, s.get("worn", False), s.get("worn_quantity"))
+                    db.session.add(PackItem(pack_id=pack.id, item_id=s["item_id"], quantity=qty,
+                                            worn=worn, worn_quantity=wq, checked=False, sort_order=max_sort))
                     added.append(owned[s["item_id"]].name)
                 else:
-                    if "quantity" in s:
-                        pi.quantity = s["quantity"]
-                    if "worn" in s:
-                        pi.worn = bool(s["worn"])
+                    _apply_pack_item_spec(pi, s)
                     updated.append(owned[s["item_id"]].name)
             db.session.commit()
             detail = _fresh_pack_detail(pack, caller)
@@ -360,8 +364,11 @@ def register_write_tools(mcp: MCPServer) -> None:
     @write_tool(
         "update_pack_items",
         "Change quantity, worn or checked (packed) flags for items already in a pack. `items` is "
-        "a list of {item_id, quantity?, worn?, checked?}; only the keys you pass change. Mark "
-        "clothing being hiked in as worn so it leaves base weight. Requires a subscription.",
+        "a list of {item_id, quantity?, worn?, worn_quantity?, checked?}; only the keys you pass "
+        "change. Mark clothing being hiked in as worn so it leaves base weight. For an item packed "
+        "in quantity, `worn_quantity` says how many units are worn (e.g. 1 of 5 shirts; 2 of 2 "
+        "trekking poles) -- the rest stay in base weight. `worn: true` alone means one unit. "
+        "Requires a subscription.",
         WRITE_IDEMPOTENT,
     )
     async def update_pack_items(pack_id: int, items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -375,10 +382,7 @@ def register_write_tools(mcp: MCPServer) -> None:
                 raise ToolError(f"These item_ids are not in pack {pack.id}: {missing}. Use add_items_to_pack to add them.")
             for s in specs:
                 pi = existing[s["item_id"]]
-                if "quantity" in s:
-                    pi.quantity = s["quantity"]
-                if "worn" in s:
-                    pi.worn = bool(s["worn"])
+                _apply_pack_item_spec(pi, s)
                 if "checked" in s:
                     pi.checked = bool(s["checked"])
             db.session.commit()
@@ -426,7 +430,7 @@ def register_write_tools(mcp: MCPServer) -> None:
                     continue
                 max_sort = float(max_sort) + 1
                 db.session.add(PackItem(pack_id=pack.id, item_id=ki.item_id, quantity=ki.quantity or 1,
-                                        worn=False, checked=False, sort_order=max_sort))
+                                        worn=False, worn_quantity=0, checked=False, sort_order=max_sort))
                 added += 1
             db.session.commit()
             detail = _fresh_pack_detail(pack, caller)
@@ -808,6 +812,23 @@ def _trip_fields(caller: Caller, *, location, start_date, end_date, temperature_
     return {k: v for k, v in out.items() if not (partial and v is None and k not in ("notes", "location"))}
 
 
+def _apply_pack_item_spec(pi, s: dict[str, Any]) -> None:
+    """Apply quantity / worn / worn_quantity from a tool spec to an existing
+    pack item, keeping 0 <= worn_quantity <= quantity and worn in step."""
+    if not ({"quantity", "worn", "worn_quantity"} & s.keys()):
+        return
+    current_wq = effective_worn(pi)   # against the old quantity
+    if "quantity" in s:
+        pi.quantity = s["quantity"]
+    if "worn_quantity" in s:
+        wq, worn = normalize_worn(pi.quantity, None, s["worn_quantity"])
+    elif "worn" in s:
+        wq, worn = normalize_worn(pi.quantity, s["worn"], None, current_wq)
+    else:   # quantity only: re-clamp what's there
+        wq, worn = normalize_worn(pi.quantity, None, current_wq)
+    pi.worn_quantity, pi.worn = wq, worn
+
+
 def _parse_pack_item_specs(items: list[dict[str, Any]], allow_checked: bool = False) -> list[dict[str, Any]]:
     if not isinstance(items, list) or not items:
         raise ToolError("items must be a non-empty list of {item_id, ...} objects.")
@@ -825,6 +846,14 @@ def _parse_pack_item_specs(items: list[dict[str, Any]], allow_checked: bool = Fa
             spec["quantity"] = q
         if "worn" in raw and raw["worn"] is not None:
             spec["worn"] = bool(raw["worn"])
+        if "worn_quantity" in raw and raw["worn_quantity"] is not None:
+            try:
+                wq = float(raw["worn_quantity"])
+            except (TypeError, ValueError):
+                raise ToolError("worn_quantity must be a number.")
+            if wq < 0:
+                raise ToolError("worn_quantity cannot be negative.")
+            spec["worn_quantity"] = wq
         if allow_checked and "checked" in raw and raw["checked"] is not None:
             spec["checked"] = bool(raw["checked"])
         specs.append(spec)

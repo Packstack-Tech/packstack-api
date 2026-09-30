@@ -10,6 +10,7 @@ from utils.auth import authenticate
 from utils.consts import FREE_PACKS_PER_TRIP
 from utils.pack_summary import serialize_pack, serialize_pack_public
 from utils.overpack import overpacked_items
+from utils.pack_weight import normalize_worn
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,10 @@ class PackItemType(BaseModel):
     item_id: int
     quantity: Optional[float] = None
     worn: bool = False
+    # Units worn, 0..quantity. None = not sent: clients that predate the field
+    # send only `worn`, and utils.pack_weight.normalize_worn then keeps the
+    # stored count instead of resetting it (see update_pack).
+    worn_quantity: Optional[float] = None
     checked: bool = False
     sort_order: float = 0
 
@@ -165,10 +170,12 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
         raise HTTPException(400, "An error occurred while creating pack.")
 
     for item in pack.items:
+        worn_quantity, worn = normalize_worn(item.quantity, item.worn, item.worn_quantity)
         new_item = PackItem(pack_id=new_pack.id,
                             item_id=item.item_id,
                             quantity=item.quantity,
-                            worn=item.worn,
+                            worn=worn,
+                            worn_quantity=worn_quantity,
                             checked=item.checked,
                             sort_order=item.sort_order)
 
@@ -202,18 +209,26 @@ def update_pack(id: int, payload: PackType, user: User = Depends(authenticate)):
     # Before any mutation, while pack.trip_id is still the stored value.
     _enforce_pack_move(user, pack, new_trip_id)
 
+    # The rows are rebuilt from the payload below, and older mobile builds
+    # resend the whole pack (without worn_quantity) on every checklist tick.
+    # Read the stored counts first so normalize_worn can keep them.
+    stored_worn = {pi.item_id: pi.worn_quantity for pi in pack.items}
+
+    def _row(item):
+        worn_quantity, worn = normalize_worn(
+            item.quantity, item.worn, item.worn_quantity, stored_worn.get(item.item_id))
+        return PackItem(pack_id=pack.id,
+                        item_id=item.item_id,
+                        quantity=item.quantity,
+                        worn=worn,
+                        worn_quantity=worn_quantity,
+                        checked=item.checked,
+                        sort_order=item.sort_order)
+
     try:
         pack.title = payload.title
         pack.trip_id = new_trip_id
-        pack.items = [
-            PackItem(pack_id=pack.id,
-                     item_id=item.item_id,
-                     quantity=item.quantity,
-                     worn=item.worn,
-                     checked=item.checked,
-                     sort_order=item.sort_order)
-            for item in payload.items
-        ]
+        pack.items = [_row(item) for item in payload.items]
         db.session.commit()
         db.session.refresh(pack)
     except Exception:

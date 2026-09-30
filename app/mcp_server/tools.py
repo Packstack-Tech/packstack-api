@@ -26,6 +26,7 @@ from mcp_server.context import (
 )
 from utils.ai_review import build_ai_review_markdown
 from utils.overpack import overpacked_items
+from utils.pack_weight import effective_worn, pack_quantity, split_weight
 from utils.consts import FREE_TIER_UNLIMITED, FREE_PACKS_PER_TRIP
 from api.trip import FREE_TRIP_LIMIT
 
@@ -90,15 +91,13 @@ def _pack_totals(items: list[PackItem], caller: Caller) -> dict[str, Any]:
     for pi in items:
         if pi.item is None:
             continue
-        qty = float(pi.quantity or 1)
-        g = to_grams(pi.item.weight, pi.item.unit) * qty
-        total += g
-        if pi.worn:
-            worn += g
-        elif pi.item.consumable:
-            consumable += g
-        else:
-            base += g
+        # Same split as the app, the public page and the AI export.
+        qty = pack_quantity(pi)
+        parts = split_weight(pi)
+        total += parts["total"]
+        worn += parts["worn"]
+        consumable += parts["consumable"]
+        base += parts["base"]
         calories += float(pi.item.calories or 0) * qty
     return {
         "base_weight": weight_fields(base, caller, big=True),
@@ -121,6 +120,8 @@ def _pack_detail(pack: Pack, caller: Caller) -> dict[str, Any]:
         entry.update({
             "quantity": float(pi.quantity or 1),
             "worn": bool(pi.worn),
+            # Units worn (e.g. 1 of 5 shirts); the rest count as base.
+            "worn_quantity": effective_worn(pi),
             "checked": bool(pi.checked),
             "line_weight": weight_fields(to_grams(pi.item.weight, pi.item.unit) * float(pi.quantity or 1), caller),
         })
@@ -368,6 +369,7 @@ def register_read_tools(mcp: MCPServer) -> None:
             out["in_packs"] = [{
                 "trip_id": t.id, "trip": t.location or t.title, "pack_id": p.id, "pack": p.title,
                 "quantity": float(pi.quantity or 1), "worn": bool(pi.worn),
+                "worn_quantity": effective_worn(pi),
             } for pi, p, t in pack_rows]
             out["in_kits"] = [{"kit_id": k.id, "name": k.name} for k in kits]
             return out

@@ -439,7 +439,13 @@ class PackItem(Base):
     pack_id = Column(Integer, ForeignKey("pack.id"), primary_key=True)
     item_id = Column(Integer, ForeignKey("item.id"), primary_key=True)
     quantity = Column(Numeric, default=1)
+    # Kept equal to (worn_quantity > 0) by every API write; stored rather than
+    # derived because pack items serialize straight from the row and older
+    # clients read it.
     worn = Column(Boolean, default=False)
+    # Units of this pack item that are worn, 0..quantity (e.g. 1 of 5 shirts).
+    # See api/app/utils/pack_weight.py and migrations/worn_quantity.sql.
+    worn_quantity = Column(Numeric, default=0, nullable=False, server_default="0")
     checked = Column(Boolean, default=False)
     sort_order = Column(Numeric, default=0)
 

@@ -11,10 +11,10 @@ Design notes:
 - Weights are precomputed in both grams and ounces. Models are unreliable at
   summing mixed-unit, fractional-quantity lists; doing the arithmetic here
   removes a whole class of wrong answers.
-- Base / worn / consumable follow the public page's rule (worn wins, then
-  consumable, then base) so the totals here match what the user sees on
-  packstack.io. compute_pack_summary in pack_summary.py uses a slightly
-  different rule and is left alone -- it feeds the authenticated app.
+- Base / worn / consumable come from utils.pack_weight.split_weight -- the
+  one rule the app, the public page and the MCP server all use -- so the
+  totals here match what the user sees everywhere else. A worn item may be
+  only partly worn (1 of 5 shirts); the rest of its units stay in base.
 - Trip fields are stored canonically in metric (km, m, degC) and rendered in
   the owner's display units, with the other unit in parentheses, so a reader
   in either system gets a number they recognize.
@@ -28,6 +28,7 @@ from datetime import date
 from typing import Iterable, Optional
 
 from utils.overpack import overpacked_items
+from utils.pack_weight import effective_worn, pack_quantity, split_weight
 
 CONVERSION_TO_GRAMS = {"g": 1.0, "kg": 1000.0, "oz": 28.3495, "lb": 453.592}
 OZ_PER_GRAM = 1 / 28.3495
@@ -192,15 +193,12 @@ def _summarize(pack_items: Iterable) -> dict:
         item = pi.item
         if item is None:
             continue
-        qty = float(pi.quantity or 1)
-        w = item_weight_grams(item) * qty
-        total += w
-        if pi.worn:
-            worn += w
-        elif item.consumable:
-            consumable += w
-        else:
-            base += w
+        qty = pack_quantity(pi)
+        parts = split_weight(pi)
+        total += parts["total"]
+        worn += parts["worn"]
+        consumable += parts["consumable"]
+        base += parts["base"]
         calories += float(item.calories or 0) * qty
         count += 1
     return {
@@ -245,8 +243,11 @@ def _item_table(pack_items) -> list:
         qty = float(pi.quantity or 1)
         each_g = item_weight_grams(item)
         flags = []
-        if pi.worn:
+        worn_units = effective_worn(pi)
+        if worn_units and worn_units >= qty:
             flags.append("worn")
+        elif worn_units:
+            flags.append(f"{_fmt_num(worn_units, 2)} of {_fmt_num(qty, 2)} worn")
         if item.consumable:
             flags.append("consumable")
         if not item.weight:
@@ -344,7 +345,9 @@ def build_ai_review_markdown(trip, packs: list, user, public_url: Optional[str] 
     lines += [
         "Definitions: **base weight** is everything carried in the pack that is "
         "not worn and not consumed; **worn** items are on the body while hiking; "
-        "**consumables** are food, fuel and water that get used up. Rows flagged "
+        "**consumables** are food, fuel and water that get used up. A row flagged "
+        "\"1 of 5 worn\" has only that many units on the body; the rest are "
+        "carried and count toward base. Rows flagged "
         "\"no weight entered\" have no weight on file and are excluded from the "
         "totals, so treat them as an unknown.",
         "",
