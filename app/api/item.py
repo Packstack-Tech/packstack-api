@@ -253,6 +253,60 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     return item
 
 
+# Columns a clone copies: what describes the product, not the particular
+# object the user owns. Allow-list on purpose -- a column added later is NOT
+# copied until someone decides it should be. Deliberately left out: quantity
+# (a clone is a different object; identical gear is one item with a higher
+# quantity), notes, every lifecycle field, the activity log, pack and kit
+# memberships, and removed/deleted.
+CLONE_COLUMNS = (
+    "category_id",
+    "brand_id", "product_id", "product_variant_id",
+    "catalog_product_id", "catalog_variant_id", "catalog_locked",
+    "weight", "unit", "price", "calories", "consumable",
+    "product_url",
+    "sort_order",
+)
+CLONE_SUFFIX = " (Copy)"
+NAME_MAX = 100
+
+
+def clone_name(name: Optional[str]) -> str:
+    base = (name or "").strip() or "Item"
+    return base[: NAME_MAX - len(CLONE_SUFFIX)].rstrip() + CLONE_SUFFIX
+
+
+@route.post("/{item_id}/clone", status_code=201)
+def clone_item(item_id: int, user: User = Depends(authenticate)):
+    """Create a new closet item from an existing one's core characteristics
+    and return it. Copies the catalog link exactly (including catalog_locked),
+    which a plain POST /item would re-derive from brand/product text."""
+    source = db.session.query(Item).filter_by(
+        id=item_id, user_id=user.id, deleted=False).first()
+    if not source:
+        raise HTTPException(404, "Item not found.")
+
+    data = {c: getattr(source, c) for c in CLONE_COLUMNS}
+    # "Want another like this" stays on the wishlist; anything else (retired,
+    # sold, lost, archived) comes back as a fresh active item.
+    status = "wishlist" if source.status == "wishlist" else "active"
+
+    clone = Item(user_id=user.id, name=clone_name(source.name), status=status,
+                 quantity=1, removed=False, deleted=False, **data)
+    db.session.add(clone)
+    try:
+        db.session.commit()
+        db.session.refresh(clone)
+    except Exception:
+        logger.exception("Failed to clone item %s", item_id)
+        raise HTTPException(400, "Unable to clone item.")
+
+    if clone.brand_id and clone.product_id and not clone.catalog_product_id and not clone.catalog_locked:
+        enrich_product.delay(clone.id)
+
+    return clone
+
+
 @route.delete("/{item_id}/catalog")
 def detach_catalog(item_id: int, user: User = Depends(authenticate)):
     """Detach the auto-assigned catalog product from an item and lock it so
