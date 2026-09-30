@@ -429,7 +429,9 @@ def test_subscriber_full_write_flow(client, user):
     from fastapi_sqlalchemy import db
     from models.base import CatalogProduct
     with db():
-        cp = CatalogProduct(brand_name="Durston Gear", product_name="X-Mid 1", variant_name=None,
+        from models.keys import product_keys
+        bk, pk = product_keys("Durston Gear", "X-Mid 1")
+        cp = CatalogProduct(brand_name="Durston Gear", product_name="X-Mid 1", brand_key=bk, product_key=pk,
                             display_name="Durston Gear X-Mid 1", weight=795, weight_unit="g", status="approved",
                             category_suggestion="Shelter")
         db.session.add(cp); db.session.commit(); cp_id = cp.id
@@ -530,9 +532,10 @@ def test_update_item_identity(client, user):
 
     from fastapi_sqlalchemy import db
     from models.base import CatalogProduct, CatalogVariant, Item
-    from models.keys import canonical_variant_key
+    from models.keys import canonical_variant_key, product_keys
     with db():
-        cp = CatalogProduct(brand_name=f"Trailmark{sfx}", product_name="Ridge Quilt", variant_name=None,
+        bk, pk = product_keys(f"Trailmark{sfx}", "Ridge Quilt")
+        cp = CatalogProduct(brand_name=f"Trailmark{sfx}", product_name="Ridge Quilt", brand_key=bk, product_key=pk,
                             display_name=f"Trailmark{sfx} Ridge Quilt", weight=560, weight_unit="g",
                             status="approved", category_suggestion="Sleep")
         db.session.add(cp); db.session.flush()
