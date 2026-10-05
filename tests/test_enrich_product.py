@@ -38,7 +38,7 @@ def test_flow():
     product_ai = {"is_valid_product": True, "brand_name": "NEMO Equipment", "product_name": "Tensor Insulated",
                   "variant_name": "Regular", "weight_grams": 425, "product_url": "https://nemoequipment.com/tensor",
                   "description": "pad", "category": "Sleep System", "subcategory": "Sleeping Pad"}
-    variant_ai = {"is_variant": True, "affects_weight": False, "canonical_name": "Regular", "kind": "size"}
+    variant_ai = {"axes": [{"kind": "length", "value": "Regular"}], "color": None, "note": None}
     m_img = mock.Mock()
     with mock.patch.object(ep, "_call_ai_product", return_value=product_ai) as m_prod, \
          mock.patch.object(ep, "_call_ai_recall", return_value=None) as m_recall, \
@@ -55,22 +55,35 @@ def test_flow():
         p2 = Product(brand_id=b2.id, name="tensor insulated"); s.add(p2); s.flush()
         assert ep.ensure_product(s, b2, p2, None).id == cp.id and m_prod.call_count == 1
 
-        # 3. unknown variant → one narrow AI call, inserted, alias recorded (cosmetic → no weight)
+        # 3. unknown variant: the rules place "reg" (-> Regular) with NO model call;
+        #    no weight known and no user data -> one search call for the weight
+        m_var.return_value = {"axes": [{"kind": "length", "value": "Regular"}], "color": None, "note": None, "weight_grams": None}
         cv = ep.ensure_variant(s, cp, "reg")
-        assert cv is not None and cv.name == "Regular" and cv.weight is None and cv.kind == "size"
-        assert cv.aliases == ["reg"] and m_var.call_count == 1
+        assert cv is not None and cv.name == "Regular" and cv.weight is None and cv.kind == "length"
+        assert cv.aliases == ["reg"] and m_var.call_count == 1 and m_var.call_args.kwargs.get("with_search")
         # 4. known variant via alias map / recorded alias → no AI
         assert ep.ensure_variant(s, cp, "Reg").id == cv.id and m_var.call_count == 1
         assert ep.ensure_variant(s, cp, "REGULAR").id == cv.id and m_var.call_count == 1
         # 5. spec-like text → ignored without AI
         assert ep.ensure_variant(s, cp, "690g") is None and m_var.call_count == 1
-        # 6. weight-affecting variant
-        m_var.return_value = {"is_variant": True, "affects_weight": True, "canonical_name": "Long", "weight_grams": 480, "kind": "length"}
-        cv_long = ep.ensure_variant(s, cp, "long")
-        assert float(cv_long.weight) == 480 and cv_long.weight_unit == "g"
-        # 7. model says not a variant
-        m_var.return_value = {"is_variant": False, "affects_weight": False, "canonical_name": None}
-        assert ep.ensure_variant(s, cp, "bought 2019") is None
+        # 5b. colour only -> not a variant, no AI, colour reported for the item
+        cv_none, parsed = ep.ensure_variant_parsed(s, cp, "Gemini Green")
+        assert cv_none is None and parsed.color == "Gemini Green" and m_var.call_count == 1
+        # 5c. combined text -> weight-bearing axis only; colour split off; synonyms collapse
+        m_var.return_value = {"axes": [], "color": None, "note": None, "weight_grams": 480}
+        cv_long = ep.ensure_variant(s, cp, "Long, Gemini Green")
+        assert cv_long.name == "Long" and float(cv_long.weight) == 480 and cv_long.weight_unit == "g"
+        assert ep.ensure_variant(s, cp, "long").id == cv_long.id
+        assert ep.ensure_variant(s, cp, "LONG / Black").id == cv_long.id
+        # 6. text the rules cannot place -> one parse call (no search); model says note only
+        m_var.return_value = {"axes": [], "color": None, "note": "bought 2019", "weight_grams": None}
+        before = m_var.call_count
+        assert ep.ensure_variant(s, cp, "bought 2019 thingy") is None
+        assert m_var.call_count == before + 1 and not m_var.call_args.kwargs.get("with_search")
+        # 7. model places an axis the rules missed
+        m_var.return_value = {"axes": [{"kind": "size", "value": "Large Mummy"}], "color": None, "note": None, "weight_grams": 500}
+        cv_mummy = ep.ensure_variant(s, cp, "Large Mummy")
+        assert cv_mummy.name == "Large Mummy" and float(cv_mummy.weight) == 500 and cv_mummy.kind == "size"
 
         # 8. linking honors lock and variant
         n = ep.link_items(s, cp, cv, p, pv.id)
@@ -81,14 +94,12 @@ def test_flow():
         assert (i2.catalog_product_id, i2.catalog_variant_id) == (None, None)   # locked
         assert n == 3
 
-        # 8b. variant that affects weight but the model has no figure: users' median fills it, no search
-        m_var.return_value = {"is_variant": True, "affects_weight": True, "canonical_name": "Wide", "weight_grams": None, "kind": "size"}
+        # 8b. rules place the axis, no weight known: users' median fills it, no model call at all
         pv_wide = ProductVariant(product_id=p.id, name="wide"); s.add(pv_wide); s.flush()
         s.add(Item(user_id=1, name="w", brand_id=b.id, product_id=p.id, product_variant_id=pv_wide.id, weight=16, unit="oz")); s.commit()
         calls_before = m_var.call_count
         cv_wide = ep.ensure_variant(s, cp, "wide", legacy_variant_id=pv_wide.id)
-        assert round(float(cv_wide.weight)) == 454 and m_var.call_count == calls_before + 1   # 16 oz, one classify call, no search
-        assert m_var.call_args.kwargs.get("user_median_g") and not m_var.call_args.kwargs.get("with_search")
+        assert round(float(cv_wide.weight)) == 454 and cv_wide.kind == "width" and m_var.call_count == calls_before
 
         # 9. rejected product short-circuits forever
         b3 = Brand(name="Acme"); s.add(b3); s.flush()

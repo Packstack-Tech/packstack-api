@@ -50,6 +50,7 @@ class ItemType(BaseModel):
     consumable: bool = False
     product_url: Optional[str] = None
     notes: Optional[str] = None
+    color: Optional[str] = None
 
     acquired_date: Optional[str] = None
     acquisition_type: Optional[str] = None
@@ -63,7 +64,7 @@ class ItemType(BaseModel):
     @field_validator(
         "acquired_date", "acquisition_type", "purchase_retailer",
         "condition", "status", "retired_date", "retired_reason",
-        "product_url", "notes",
+        "product_url", "notes", "color",
         mode="before",
     )
     @classmethod
@@ -71,6 +72,14 @@ class ItemType(BaseModel):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("color", mode="after")
+    @classmethod
+    def clean_color(cls, v):
+        if v is None:
+            return None
+        v = clean_name(v)
+        return v[:80] or None
 
     @field_validator("quantity", mode="before")
     @classmethod
@@ -264,7 +273,7 @@ CLONE_COLUMNS = (
     "brand_id", "product_id", "product_variant_id",
     "catalog_product_id", "catalog_variant_id", "catalog_locked",
     "weight", "unit", "price", "calories", "consumable",
-    "product_url",
+    "product_url", "color",
     "sort_order",
 )
 CLONE_SUFFIX = " (Copy)"

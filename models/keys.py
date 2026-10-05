@@ -14,19 +14,31 @@ import re
 
 _BRAND_SUFFIXES = ("gear", "inc", "llc", "ltd", "co", "company", "outdoors", "outdoor", "equipment")
 
-# Variant spellings that collapse to one canonical key.
+# Variant spellings that collapse to one canonical key. Keys are the
+# normalized (casefolded, non-word-stripped) spelling; values the canonical
+# display name. Range sizes ("S/M", "L/XL") normalize to "sm"/"lxl" and are
+# their own sizes, so "sm" is deliberately NOT an alias for small, and a lone
+# "w" is not women's (it is also a width marker).
 VARIANT_ALIASES = {
     "reg": "regular", "r": "regular",
-    "lg": "large", "l": "large",
-    "sm": "small", "s": "small",
-    "med": "medium", "m": "medium",
-    "xlarge": "xl", "extralarge": "xl",
-    "womens": "women's", "wmns": "women's", "women": "women's", "w": "women's",
-    "mens": "men's", "men": "men's",
-    "regularwide": "regular / wide", "regwide": "regular / wide",
-    "longwide": "long / wide",
+    "lg": "large", "l": "large", "sizel": "large", "sizelarge": "large",
+    "s": "small", "sizes": "small", "sizesmall": "small",
+    "med": "medium", "m": "medium", "sizem": "medium", "sizemedium": "medium",
+    "xs": "xs", "xsmall": "xs", "extrasmall": "xs", "sizexs": "xs",
+    "xlarge": "xl", "extralarge": "xl", "sizexl": "xl", "xlrg": "xl",
+    "xxlarge": "xxl", "2xl": "xxl", "2xlarge": "xxl", "sizexxl": "xxl", "size2xl": "xxl",
+    "xxxlarge": "xxxl", "3xl": "xxxl", "3xlarge": "xxxl",
+    "womens": "women's", "wmns": "women's", "women": "women's", "woman": "women's",
+    "ladies": "women's", "female": "women's", "damen": "women's", "femme": "women's", "dames": "women's",
+    "mens": "men's", "men": "men's", "man": "men's", "male": "men's",
+    "herren": "men's", "homme": "men's", "heren": "men's",
+    "regularwide": "regular / wide", "regwide": "regular / wide", "rw": "regular / wide",
+    "longwide": "long / wide", "lw": "long / wide", "lwlongwide": "long / wide",
+    "longlengthen": "long",
     "1person": "1p", "2person": "2p", "3person": "3p", "4person": "4p",
-    "oneperson": "1p", "twoperson": "2p", "threeperson": "3p",
+    "oneperson": "1p", "twoperson": "2p", "threeperson": "3p", "fourperson": "4p",
+    "1people": "1p", "2people": "2p", "3people": "3p",
+    "solo": "1p",
 }
 
 

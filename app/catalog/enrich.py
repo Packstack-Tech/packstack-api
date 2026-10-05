@@ -33,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from models.base import Brand, Product, ProductVariant, Item, CatalogProduct, CatalogVariant
 from models.keys import canonical_variant_key, product_keys
 from catalog.resolver import resolve_product, resolve_variant, record_alias
+from catalog.variant_parse import parse_variant, ParsedVariant, Axis, KINDS
 
 logger = logging.getLogger(__name__)
 
@@ -552,40 +553,63 @@ def _recall_is_trustworthy(result: dict, median_weight: float | None) -> bool:
 # ---------------------------------------------------------------------------
 
 VARIANT_SYSTEM_PROMPT = (
-    "You classify product OPTIONS for a backpacking gear catalog. You are given one known product "
-    "(brand, name, base weight in grams, and the variants already on file with their weights) and a "
-    "piece of text a user typed as that product's variant.\n\n"
-    "Decide:\n"
-    "1. is_variant — false if the text is not a product option at all: a weight or spec measurement "
-    "(\"690g\", \"R 4.2\"), a year, a note, random words. true for a real option.\n"
-    "2. affects_weight — true when the option changes the product's weight: size, length, width, "
-    "person count (1P/2P), capacity/volume, gender cut, fill weight, temperature rating variants that are "
-    "different SKUs. false for cosmetic options: color, pattern, print, colorway, limited edition names.\n"
-    "3. canonical_name — the manufacturer's spelling of the option (\"Regular\" not \"reg\", \"Women's\" not "
-    "\"wmns\", \"2P\" not \"2 person\"). If the text matches one of the variants already on file, return "
-    "that variant's exact name.\n"
-    "4. weight_grams — ONLY when affects_weight is true: the manufacturer's weight in grams for THAT option "
-    "if you know it. If a weight users entered is given and looks plausible for the option, use it. If you "
-    "have web search, use at most one search. Otherwise return null — never guess and never copy the base "
-    "weight.\n"
-    "5. kind — one of size, length, gender, color, capacity, other."
+    "You parse the text a user typed as a product's VARIANT for a backpacking gear catalog into "
+    "structured parts. You are given one known product (brand, name, base weight, the variants already "
+    "on file) and the user's text.\n\n"
+    "A catalog variant is a MANUFACTURER option that can change the product's weight. Split the text into:\n"
+    "- axes: zero or more of kind=gender (Men's / Women's / Unisex / Kids), size (XS..XXXL, S/M, US 10, 32x32), "
+    "length (Regular / Long / Short / Tall), width (Wide / Narrow), capacity (person count like 2P, volume "
+    "like 2L / 32 oz, temperature rating like 20°F, pack count like 2-Pack, mAh, lumens, dimensions), "
+    "generation (2021, Gen 2, v2). Use the manufacturer's spelling. If an axis matches a variant already on "
+    "file, use that variant's exact value.\n"
+    "- color: the colourway, in the user's language ('Gemini Green', 'Karbongrau'). Null if none.\n"
+    "- note: anything else that is a personal remark or accessory, not an option ('w/ keys', 'with footprint', "
+    "'approx 750g', 'for sleeping'). Null if none.\n"
+    "A fabric spec (20D, Ultra 200X), a fill power, an edition name or a model number is NOT an axis: put it in "
+    "note. Never invent an axis the text does not contain.\n"
+    "- weight_grams: ONLY when an axis is present and you know the manufacturer's weight for THAT option. "
+    "If a weight users entered is given and looks plausible, use it. With web search, use at most one search. "
+    "Otherwise null — never guess, never copy the base weight."
 )
 
 VARIANT_TOOL_SCHEMA = {
-    "name": "variant_verdict",
-    "description": "Classification of a user-typed variant for a known catalog product.",
+    "name": "variant_parse",
+    "description": "Structured parts of a user-typed variant for a known catalog product.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "is_variant": {"type": "boolean"},
-            "affects_weight": {"type": "boolean"},
-            "canonical_name": {"type": ["string", "null"]},
+            "axes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "kind": {"type": "string", "enum": list(KINDS)},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["kind", "value"],
+                },
+            },
+            "color": {"type": ["string", "null"]},
+            "note": {"type": ["string", "null"]},
             "weight_grams": {"type": ["number", "null"]},
-            "kind": {"type": ["string", "null"], "enum": ["size", "length", "gender", "color", "capacity", "other", None]},
         },
-        "required": ["is_variant", "affects_weight", "canonical_name"],
+        "required": ["axes", "color", "note"],
     },
 }
+
+
+def _parsed_from_verdict(text: str, verdict: dict | None) -> ParsedVariant:
+    pv = ParsedVariant(source=text.strip())
+    if not verdict:
+        return pv
+    seen = set()
+    for a in verdict.get("axes") or []:
+        kind, value = a.get("kind"), (a.get("value") or "").strip()
+        if kind in KINDS and value and kind not in seen:
+            pv.axes.append(Axis(kind, value)); seen.add(kind)
+    pv.color = (verdict.get("color") or "").strip() or None
+    pv.note = (verdict.get("note") or "").strip() or None
+    return pv
 
 
 def _variant_user_median_g(session, cp: CatalogProduct, legacy_variant_id: int | None) -> float | None:
@@ -626,7 +650,7 @@ def _call_ai_variant(cp: CatalogProduct, variant_text: str, user_median_g: float
         label="variant/search" if with_search else "variant/classify",
     )
     for block in response.content:
-        if block.type == "tool_use" and block.name == "variant_verdict":
+        if block.type == "tool_use" and block.name == "variant_parse":
             return block.input
     return None
 
@@ -771,43 +795,67 @@ def ensure_product(session, brand: Brand, product: Product, variant_hint: str | 
 # Variant step
 # ---------------------------------------------------------------------------
 
+def parse_variant_text(cp: CatalogProduct, variant_text: str,
+                       user_median_g: float | None = None) -> ParsedVariant:
+    """Rules first; the model only for text the rules could not fully place.
+    `parsed.decided_by` is 'rules' or 'ai' so callers can audit."""
+    parsed = parse_variant(variant_text)
+    parsed.decided_by = "rules"
+    if parsed.needs_ai:
+        verdict = _call_ai_variant(cp, variant_text, user_median_g=user_median_g)
+        parsed = _parsed_from_verdict(variant_text, verdict)
+        parsed.decided_by = "ai"
+        if verdict and verdict.get("weight_grams") is not None:
+            parsed.weight_g = float(verdict["weight_grams"])
+    return parsed
+
+
 def ensure_variant(session, cp: CatalogProduct, variant_text: str | None,
                    legacy_variant_id: int | None = None) -> CatalogVariant | None:
-    """Return the CatalogVariant of `cp` for the user's variant text, asking
-    the model only when the text matches nothing on file. Records the
-    user's spelling as an alias. Returns None when the text is not a variant."""
+    """Return the CatalogVariant of `cp` for the user's variant text. Records
+    the user's spelling as an alias. Returns None when the text carries no
+    weight-bearing option (colour only, a note, a spec)."""
+    cv, _ = ensure_variant_parsed(session, cp, variant_text, legacy_variant_id)
+    return cv
+
+
+def ensure_variant_parsed(session, cp: CatalogProduct, variant_text: str | None,
+                          legacy_variant_id: int | None = None) -> tuple[CatalogVariant | None, ParsedVariant | None]:
+    """ensure_variant plus the parse, so callers can move the colour the user
+    typed onto their item (`parsed.color`)."""
     if not variant_text or not variant_text.strip():
-        return None
+        return None, None
     variant_text = variant_text.strip()
+
+    # 1. already on file under this spelling (key or recorded alias): no parse
     cv = resolve_variant(session, cp, variant_text)
     if cv is not None:
         record_alias(cv, variant_text)
         session.commit()
-        return cv
-    if _looks_like_spec(variant_text):
-        logger.info("Variant text is a spec, ignored: %r", variant_text)
-        return None
+        return cv, None
 
+    # 2. split the text into axes / colour / note
     user_median = _variant_user_median_g(session, cp, legacy_variant_id)
-    verdict = _call_ai_variant(cp, variant_text, user_median_g=user_median)
-    if not verdict or not verdict.get("is_variant"):
-        logger.info("Not a variant per model: %r (%s)", variant_text, cp.display_name)
-        return None
-    if verdict.get("affects_weight") and verdict.get("weight_grams") is None:
-        if user_median:
-            verdict["weight_grams"] = round(user_median, 1)   # users' measurements beat a web page
-        else:
-            searched = _call_ai_variant(cp, variant_text, with_search=True)
-            if searched and searched.get("weight_grams") is not None:
-                verdict = searched
-    name = (verdict.get("canonical_name") or variant_text).strip()
+    parsed = parse_variant_text(cp, variant_text, user_median_g=user_median)
+    if not parsed.is_variant:
+        logger.info("Not a variant (%s): %r -> color=%r note=%r", parsed.decided_by, variant_text, parsed.color, parsed.note)
+        return None, parsed
+    name = parsed.name
+
+    # 3. the canonical name may already exist ("2 Person" -> "2P")
     cv = resolve_variant(session, cp, name)
     if cv is None:
-        weight = verdict.get("weight_grams") if verdict.get("affects_weight") else None
+        weight = parsed.weight_g
+        if weight is None and user_median:
+            weight = round(user_median, 1)            # users' measurements beat a web page
+        elif weight is None:
+            searched = _call_ai_variant(cp, name, with_search=True)
+            if searched and searched.get("weight_grams") is not None:
+                weight = float(searched["weight_grams"])
         cv = CatalogVariant(
             catalog_product_id=cp.id, name=name, name_key=canonical_variant_key(name),
             weight=weight, weight_unit="g" if weight is not None else None,
-            kind=verdict.get("kind"), aliases=[],
+            kind=parsed.kind, aliases=[],
             sort_order=len([v for v in (cp.variants or []) if not v.hidden]),
         )
         session.add(cv)
@@ -817,12 +865,13 @@ def ensure_variant(session, cp: CatalogProduct, variant_text: str | None,
             session.rollback()
             cv = resolve_variant(session, cp, name)
             if cv is None:
-                return None
+                return None, parsed
         else:
-            logger.info("Inserted variant %r for %s (weight=%s, kind=%s)", name, cp.display_name, weight, cv.kind)
+            logger.info("Inserted variant %r for %s (weight=%s, kind=%s, by=%s)",
+                        name, cp.display_name, weight, cv.kind, parsed.decided_by)
     record_alias(cv, variant_text)
     session.commit()
-    return cv
+    return cv, parsed
 
 
 # ---------------------------------------------------------------------------
@@ -878,7 +927,9 @@ def enrich_item(session, item_id: int, on_product_created=None) -> tuple[Catalog
     cp = ensure_product(session, brand, product, variant_text, on_product_created)
     if cp is None:
         return None, None
-    cv = ensure_variant(session, cp, variant_text, legacy_variant.id if legacy_variant else None)
+    cv, parsed = ensure_variant_parsed(session, cp, variant_text, legacy_variant.id if legacy_variant else None)
+    if parsed is not None and parsed.color and not item.color:
+        item.color = parsed.color[:80]      # the colourway belongs to the item, not the catalog
 
     item = session.query(Item).get(item_id)   # refresh after commits
     if not item.catalog_locked:

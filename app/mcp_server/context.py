@@ -116,6 +116,7 @@ def item_summary(item, caller: Caller) -> dict:
         "price": float(item.price) if item.price else None,
         "notes": item.notes or None,
         "product_url": item.product_url or None,
+        "color": item.color or None,
         "archived": bool(item.removed),
         "status": item.status or "active",
     }

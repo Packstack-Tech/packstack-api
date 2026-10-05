@@ -67,6 +67,7 @@ def _serialize_item_public(item):
         "consumable": item.consumable,
         "notes": item.notes,
         "product_url": item.product_url,
+        "color": item.color,
         "category_id": item.category_id,
         "category": item.category,
         "brand": item.brand,

@@ -165,6 +165,9 @@ class Item(Base):
     consumable = Column(Boolean, default=False)
     product_url = Column(String(1000))
     notes = Column(Text)
+    # Free-form colorway as the user wants to see it ("Gemini Green",
+    # "Black / Olive"). Purely aesthetic: never a catalog variant.
+    color = Column(String(80))
 
     # Lifecycle: acquisition
     acquired_date = Column(DATE)
