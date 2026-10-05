@@ -30,7 +30,7 @@ class OAuthClient(Base):
       cimd          — client_id is an https URL to a Client ID Metadata Document
                       we fetched and cached (Claude, ChatGPT, Claude Code).
       dcr           — registered via POST /oauth/register; opaque client_id.
-      preregistered — inserted by hand (e.g. Anthropic-held credentials).
+      preregistered — inserted by hand (e.g. Anthropic-held credentials)..
     """
     __tablename__ = "oauth_client"
 
