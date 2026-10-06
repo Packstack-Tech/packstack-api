@@ -302,6 +302,18 @@ class CatalogProduct(Base):
                             order_by="CatalogVariant.sort_order")
 
 
+class CatalogProductLegacyAlias(Base):
+    """Legacy `Product` rows that resolve to a CatalogProduct other than the
+    one researched from them: written when sibling catalog products are
+    merged (Exos 38 / 48 / 58 -> Exos). `ensure_product` consults it before
+    the FK and key lookups so a merged-away product is never re-created."""
+    __tablename__ = "catalogproduct_legacy_alias"
+    legacy_product_id = Column(Integer, ForeignKey("product.id"), primary_key=True)
+    catalog_product_id = Column(Integer, ForeignKey("catalogproduct.id"), nullable=False, index=True)
+    catalog_variant_id = Column(Integer, ForeignKey("catalogvariant.id"))   # the sibling's variant, if any
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
 class CatalogVariant(Base):
     """A named option of a CatalogProduct. `weight IS NULL` means the
     variant is aesthetic (color, pattern) and does not affect weight; a

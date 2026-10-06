@@ -30,7 +30,7 @@ import requests
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
-from models.base import Brand, Product, ProductVariant, Item, CatalogProduct, CatalogVariant
+from models.base import Brand, Product, ProductVariant, Item, CatalogProduct, CatalogVariant, CatalogProductLegacyAlias
 from models.keys import canonical_variant_key, product_keys
 from catalog.resolver import resolve_product, resolve_variant, record_alias
 from catalog.variant_parse import parse_variant, ParsedVariant, Axis, KINDS
@@ -691,6 +691,11 @@ def ensure_product(session, brand: Brand, product: Product, variant_hint: str | 
         CatalogProduct.product_id == product.id,
         CatalogProduct.status != "migrated",
     ).first()
+    # 1b. ...or it was a sibling merged into another product (Exos 48 -> Exos).
+    if cp is None or cp.status == "merged":
+        alias = session.get(CatalogProductLegacyAlias, product.id)
+        if alias is not None:
+            cp = session.get(CatalogProduct, alias.catalog_product_id)
     # 2. Normalized identity.
     if cp is None:
         cp = resolve_product(session, brand.name, product.name, statuses=None)
