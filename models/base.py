@@ -25,6 +25,17 @@ class Base(object):
 Base = declarative_base(cls=Base)
 
 
+# Free trip limit: trips created on/after this instant (naive UTC, matching
+# Trip.created_at) count toward the limit even after they're deleted, so
+# delete-and-recreate can't bypass it. Trips created before it count only while
+# active, which grandfathers deletes made before the rule existed.
+TRIP_LIMIT_LIFETIME_START = datetime.datetime(2026, 10, 7)
+
+
+def trip_counts_toward_limit(trip):
+    return (not trip.removed) or trip.created_at >= TRIP_LIMIT_LIFETIME_START
+
+
 class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, nullable=False, index=True)
@@ -132,6 +143,10 @@ class User(Base):
             "personal_url": self.personal_url,
 
             "trips": active_trips,
+            # What the free trip limit counts (includes recently deleted
+            # trips); clients gate on this instead of len(trips).
+            "trip_limit_count": sum(
+                1 for t in self.trips if trip_counts_toward_limit(t)),
         }
 
 

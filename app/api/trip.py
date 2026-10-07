@@ -7,9 +7,13 @@ from fastapi.responses import Response
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, noload
 
-from models.base import User, Trip, Pack, PackItem, Item
+from models.base import (
+    User, Trip, Pack, PackItem, Item,
+    TRIP_LIMIT_LIFETIME_START, trip_counts_toward_limit,
+)
 from tasks.enrich_trip import enrich_trip
 from utils.ai_review import build_ai_review_markdown
 from utils.pack_summary import serialize_pack_public
@@ -20,8 +24,18 @@ logger = logging.getLogger(__name__)
 
 route = APIRouter()
 
-# Number of active (non-removed) trips a non-subscribed user may have.
+# Number of trips a non-subscribed user may have. Counts active trips plus
+# any deleted trip created on/after TRIP_LIMIT_LIFETIME_START, so deleting a
+# trip doesn't free a slot (see models.base.trip_counts_toward_limit).
 FREE_TRIP_LIMIT = 3
+
+
+def count_trips_toward_limit(user_id: int) -> int:
+    return db.session.query(Trip).filter(
+        Trip.user_id == user_id,
+        or_(Trip.removed == False,  # noqa: E712
+            Trip.created_at >= TRIP_LIMIT_LIFETIME_START),
+    ).count()
 
 
 def _enforce_trip_limit(user: User):
@@ -29,10 +43,7 @@ def _enforce_trip_limit(user: User):
     if user.is_subscribed:
         return
 
-    active_trips = db.session.query(Trip).filter_by(
-        user_id=user.id, removed=False).count()
-
-    if active_trips >= FREE_TRIP_LIMIT:
+    if count_trips_toward_limit(user.id) >= FREE_TRIP_LIMIT:
         raise HTTPException(
             402, "Free accounts include three gear lists. Upgrade to Pro for unlimited.")
 
@@ -269,6 +280,12 @@ def update(payload: TripUpdate, user: User = Depends(authenticate)):
     old_start_date = str(trip.start_date) if trip.start_date else None
     old_end_date = str(trip.end_date) if trip.end_date else None
     fields = payload.model_dump(exclude_none=True)
+
+    # Un-deleting a trip that doesn't already count toward the free limit
+    # (one deleted before TRIP_LIMIT_LIFETIME_START) adds a trip, so gate it.
+    if (trip.removed and fields.get("removed") is False
+            and not trip_counts_toward_limit(trip)):
+        _enforce_trip_limit(user)
 
     try:
         for key, value in fields.items():

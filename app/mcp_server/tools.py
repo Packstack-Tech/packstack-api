@@ -28,7 +28,7 @@ from utils.ai_review import build_ai_review_markdown
 from utils.overpack import overpacked_items
 from utils.pack_weight import effective_worn, pack_quantity, split_weight
 from utils.consts import FREE_TIER_UNLIMITED, FREE_PACKS_PER_TRIP
-from api.trip import FREE_TRIP_LIMIT
+from api.trip import FREE_TRIP_LIMIT, count_trips_toward_limit
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False)
 
@@ -168,6 +168,7 @@ def register_read_tools(mcp: MCPServer) -> None:
             caller = current_caller()
             u = caller.user
             trips = db.session.query(Trip).filter_by(user_id=u.id, removed=False).count()
+            trips_toward_limit = count_trips_toward_limit(u.id)
             kits = db.session.query(Kit).filter_by(user_id=u.id).count()
             items = db.session.query(Item).filter_by(user_id=u.id, deleted=False, removed=False).count()
 
@@ -189,7 +190,7 @@ def register_read_tools(mcp: MCPServer) -> None:
                 "can_edit_via_connected_apps": bool(u.is_subscribed),
                 "counts": {"trips": trips, "kits": kits, "active_gear_items": items},
                 "free_tier_remaining": {
-                    "trips": remaining(trips, FREE_TRIP_LIMIT),
+                    "trips": remaining(trips_toward_limit, FREE_TRIP_LIMIT),
                     "kits": remaining(kits, 1),
                     "packs_per_trip": None if u.is_subscribed or FREE_PACKS_PER_TRIP >= FREE_TIER_UNLIMITED else FREE_PACKS_PER_TRIP,
                 },
