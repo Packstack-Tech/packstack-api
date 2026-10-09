@@ -36,6 +36,12 @@ REVIEW_EMAIL = os.getenv('REVIEW_EMAIL')
 REVIEW_OTP = os.getenv('REVIEW_OTP')
 
 REVENUECAT_WEBHOOK_SECRET = os.getenv('REVENUECAT_WEBHOOK_SECRET')
+# Secret (sk_) RevenueCat API key. Optional: when set, the webhook asks
+# RevenueCat whether the entitlement below is active instead of inferring it
+# from the event type (see utils/revenuecat.py).
+REVENUECAT_SECRET_API_KEY = os.getenv('REVENUECAT_SECRET_API_KEY')
+# The entitlement every paid product grants, on every store.
+REVENUECAT_ENTITLEMENT_ID = os.getenv('REVENUECAT_ENTITLEMENT_ID', 'Full Access')
 
 
 # --- Free-tier limits -------------------------------------------------------
