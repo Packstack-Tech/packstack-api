@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL = os.environ.get("ENRICH_MODEL", "claude-sonnet-5")          # tier 2: web research
-FAST_MODEL = os.environ.get("ENRICH_MODEL_FAST", "claude-haiku-4-5-20251001")          # tier 1 + variant classifier
+FAST_MODEL = os.environ.get("ENRICH_MODEL_FAST", "claude-haiku-5-5")          # tier 1 + variant classifier
 WEB_SEARCH_MAX_USES = int(os.environ.get("ENRICH_WEB_SEARCH_MAX_USES", "2"))
 ENRICH_THINKING = os.environ.get("ENRICH_THINKING", "0") == "1"                # adaptive thinking on tier 2
 MAX_TOKENS = int(os.environ.get("ENRICH_MAX_TOKENS", "1500"))
@@ -71,6 +71,16 @@ ADAPTIVE_THINKING_PREFIXES = ("claude-sonnet-5", "claude-sonnet-4-6", "claude-op
 
 def supports_adaptive_thinking(model: str) -> bool:
     return model.startswith(ADAPTIVE_THINKING_PREFIXES)
+
+
+def is_haiku5(model: str) -> bool:
+    """Haiku 5.x always thinks (adaptive, default on) and thinking tokens count
+    toward max_tokens; no temperature / prefill. We ask for low effort and
+    leave room for the thinking."""
+    return model.startswith("claude-haiku-5")
+
+
+HAIKU5_MIN_MAX_TOKENS = 4000
 
 
 def _log_usage(label: str, model: str, response) -> None:
@@ -106,6 +116,9 @@ def ai_complete(system: str, user: str, tools: list | None = None, max_retries: 
     use_thinking = ENRICH_THINKING if thinking is None else thinking
     if use_thinking and supports_adaptive_thinking(resolved_model):
         kwargs["thinking"] = {"type": "adaptive"}
+    if is_haiku5(resolved_model):
+        kwargs["max_tokens"] = max(MAX_TOKENS, HAIKU5_MIN_MAX_TOKENS)
+        kwargs["extra_body"] = {"output_config": {"effort": "low"}}
     if tools:
         kwargs["tools"] = tools
 

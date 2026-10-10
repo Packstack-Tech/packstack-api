@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Haiku 4.5 with web-search grounding: structured spec extraction doesn't
 # need Sonnet, and most enrichments never reach the AI at all (cache).
-TRIP_MODEL = "claude-haiku-4-5-20251001"
+TRIP_MODEL = "claude-haiku-5-5"
 
 # ---------------------------------------------------------------------------
 # Prompt & tool schema

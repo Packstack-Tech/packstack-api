@@ -16,7 +16,7 @@ from utils.consts import WORKER_DATABASE_URL
 
 logger = logging.getLogger(__name__)
 
-VISION_MODEL = "claude-haiku-4-5-20251001"
+VISION_MODEL = "claude-haiku-5-5"
 SERPER_IMAGES_URL = "https://google.serper.dev/images"
 MAX_CANDIDATES = 5
 
@@ -214,9 +214,10 @@ def _select_best_image(
         try:
             response = client.messages.create(
                 model=VISION_MODEL,
-                max_tokens=32,
+                max_tokens=2048,          # Haiku 5.x thinking counts toward this
                 system=_VISION_SYSTEM,
                 messages=[{"role": "user", "content": content}],
+                extra_body={"output_config": {"effort": "low"}},
             )
             break
         except anthropic.RateLimitError:
@@ -231,7 +232,7 @@ def _select_best_image(
     else:
         raise RuntimeError("Vision API failed after retries")
 
-    reply = response.content[0].text.strip()
+    reply = next((b.text for b in response.content if b.type == "text"), "").strip()
 
     try:
         choice = int(reply)
