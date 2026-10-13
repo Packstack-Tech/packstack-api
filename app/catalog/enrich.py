@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # AI client
 # ---------------------------------------------------------------------------
 
-DEFAULT_MODEL = os.environ.get("ENRICH_MODEL", "claude-sonnet-5")          # tier 2: web research
+DEFAULT_MODEL = os.environ.get("ENRICH_MODEL", "claude-sonnet-5-5")          # tier 2: web research
 FAST_MODEL = os.environ.get("ENRICH_MODEL_FAST", "claude-haiku-5-5")          # tier 1 + variant classifier
 WEB_SEARCH_MAX_USES = int(os.environ.get("ENRICH_WEB_SEARCH_MAX_USES", "2"))
 ENRICH_THINKING = os.environ.get("ENRICH_THINKING", "0") == "1"                # adaptive thinking on tier 2
