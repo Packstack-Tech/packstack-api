@@ -5,16 +5,19 @@ from fastapi_sqlalchemy import db
 from starlette.concurrency import run_in_threadpool
 
 from models.base import User
-from utils import revenuecat
-from utils.consts import REVENUECAT_ENTITLEMENT_ID, REVENUECAT_WEBHOOK_SECRET
+from tasks.sync_user import enqueue_user_sync
+from utils import revenuecat, user_sync
+from utils.consts import (
+    REVENUECAT_ENTITLEMENT_ID, REVENUECAT_PRODUCT_PLANS, REVENUECAT_WEBHOOK_SECRET,
+)
 
 logger = logging.getLogger(__name__)
 
 route = APIRouter()
 
 # Fallback only -- used when RevenueCat's API can't be asked (no secret key
-# configured, or the lookup failed). The authoritative path is
-# revenuecat.fetch_entitlement_active.
+# configured, or the lookup failed). The authoritative path is the customer
+# read in _sync_user (revenuecat.fetch_subscriber).
 GRANT_EVENTS = {
     "INITIAL_PURCHASE",
     "RENEWAL",
@@ -38,6 +41,7 @@ SYNC_EVENTS = GRANT_EVENTS | REVOKE_EVENTS | {
     "BILLING_ISSUE",
     "CANCELLATION",
     "SUBSCRIPTION_PAUSED",
+    "REFUND_REVERSED",
 }
 
 
@@ -67,7 +71,12 @@ async def _sync_user(app_user_id, event: dict, use_event_fallback: bool = True):
         logger.warning("RevenueCat webhook with non-integer app_user_id: %s", app_user_id)
         return
 
-    is_subscribed = await run_in_threadpool(revenuecat.fetch_entitlement_active, app_user_id)
+    subscriber = await run_in_threadpool(revenuecat.fetch_subscriber, app_user_id)
+    billing = None
+    if subscriber is not None:
+        billing = user_sync.billing_from_subscriber(
+            subscriber, REVENUECAT_ENTITLEMENT_ID, REVENUECAT_PRODUCT_PLANS)
+    is_subscribed = billing.active if billing else None
     source = "api"
     if is_subscribed is None and use_event_fallback:
         is_subscribed = _fallback_state(event)
@@ -79,11 +88,18 @@ async def _sync_user(app_user_id, event: dict, use_event_fallback: bool = True):
     if not user:
         logger.warning("RevenueCat webhook for unknown user_id: %s", user_id)
         return
-    if user.is_subscribed != is_subscribed:
-        user.is_subscribed = is_subscribed
-        db.session.commit()
-    logger.info("RevenueCat %s: user %s is_subscribed=%s (%s)",
-                event.get("type"), user_id, is_subscribed, source)
+    user.is_subscribed = is_subscribed
+    if billing:
+        # Plan, store, renewal date... -- what Resend gets. Without an API key
+        # there's nothing trustworthy to write, so these keep their last value.
+        user.update(billing.columns())
+    db.session.commit()
+    # Push the new billing state to Resend, and identity to RevenueCat now
+    # that RevenueCat knows this customer.
+    enqueue_user_sync(user_id)
+    logger.info("RevenueCat %s: user %s is_subscribed=%s status=%s (%s)",
+                event.get("type"), user_id, is_subscribed,
+                billing.status if billing else None, source)
 
 
 @route.post("/revenuecat")

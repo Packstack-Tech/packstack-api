@@ -51,6 +51,24 @@ class User(Base):
     stripe_sub_id = Column(String)
     is_subscribed = Column(Boolean, default=False, nullable=False, server_default="false")
 
+    # The purchase behind is_subscribed, copied from RevenueCat by the webhook
+    # (and the workshop user_attribute_sync backfill). is_subscribed stays the
+    # access flag; these describe it and feed Resend. All NULL until RevenueCat
+    # reports a purchase. See utils/user_sync.py and
+    # migrations/billing_attributes.sql.
+    # active | cancelled | billing_issue | expired
+    subscription_status = Column(String(20))
+    # lifetime | annual | monthly | weekly | promotional | subscription
+    subscription_plan = Column(String(20))
+    subscription_product_id = Column(String(200))
+    # RevenueCat store, lowercased: app_store | play_store | rc_billing | ...
+    subscription_store = Column(String(20))
+    # Renewal or end of the current period; NULL for lifetime.
+    subscription_expires_at = Column(DateTime)
+    # First purchase ("Pro since").
+    subscription_started_at = Column(DateTime)
+    subscription_synced_at = Column(DateTime)
+
     display_name = Column(String(50))
     bio = Column(String(500))
     unit_weight = Column(String(10), default="METRIC")

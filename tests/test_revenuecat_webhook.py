@@ -1,9 +1,9 @@
-"""RevenueCat webhook -> user.is_subscribed.
+"""RevenueCat webhook -> user.is_subscribed and user.subscription_*.
 
     source testenv.sh && python -m pytest tests/test_revenuecat_webhook.py -q
 
-RevenueCat's API is stubbed (monkeypatch revenuecat.fetch_entitlement_active);
-nothing here touches the network.
+RevenueCat's API is stubbed (monkeypatch revenuecat.fetch_subscriber) and the
+attribute-sync enqueue is captured; nothing here touches the network.
 """
 
 import datetime
@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from fastapi_sqlalchemy import db
 
 import main
+from api import webhook
 from models.base import User
 from utils import revenuecat
 from utils.consts import REVENUECAT_ENTITLEMENT_ID, REVENUECAT_WEBHOOK_SECRET
@@ -43,6 +44,12 @@ def subscribed(user_id):
         return db.session.query(User).get(user_id).is_subscribed
 
 
+def billing(user_id):
+    with db():
+        u = db.session.query(User).get(user_id)
+        return (u.subscription_status, u.subscription_plan, u.subscription_store)
+
+
 def send(client, event):
     r = client.post("/webhook/revenuecat", json={"event": event}, headers=HEADERS)
     assert r.status_code == 200, r.text
@@ -53,14 +60,40 @@ def ev(type_, user_id, **extra):
             "entitlement_ids": [REVENUECAT_ENTITLEMENT_ID], **extra}
 
 
+@pytest.fixture(autouse=True)
+def enqueued(monkeypatch):
+    """User ids the webhook asked to push to RevenueCat/Resend."""
+    calls = []
+    monkeypatch.setattr(webhook, "enqueue_user_sync", lambda user_id, *a, **k: calls.append(user_id))
+    return calls
+
+
 @pytest.fixture
 def no_api(monkeypatch):
     """No secret key configured / lookup failed: event-type fallback."""
-    monkeypatch.setattr(revenuecat, "fetch_entitlement_active", lambda _id: None)
+    monkeypatch.setattr(revenuecat, "fetch_subscriber", lambda _id: None)
+
+
+def _subscriber(active):
+    """A v1 subscriber whose entitlement is (in)active: an annual App Store
+    plan for True, an expired one for False, no entitlement for None."""
+    if active is None:
+        return {"entitlements": {}}
+    expires = "2099-01-01T00:00:00Z" if active else "2020-01-01T00:00:00Z"
+    return {
+        "entitlements": {REVENUECAT_ENTITLEMENT_ID: {
+            "expires_date": expires, "product_identifier": "pro_annual",
+            "purchase_date": "2019-01-01T00:00:00Z"}},
+        "subscriptions": {"pro_annual": {
+            "expires_date": expires, "purchase_date": "2019-01-01T00:00:00Z",
+            "original_purchase_date": "2019-01-01T00:00:00Z", "store": "app_store",
+            "period_type": "normal", "is_sandbox": False}},
+    }
 
 
 def api_says(monkeypatch, answers):
-    monkeypatch.setattr(revenuecat, "fetch_entitlement_active", lambda app_user_id: answers[str(app_user_id)])
+    monkeypatch.setattr(revenuecat, "fetch_subscriber",
+                        lambda app_user_id: _subscriber(answers[str(app_user_id)]))
 
 
 # --- fallback (no API key) ------------------------------------------------------
@@ -111,6 +144,47 @@ def test_api_expiration_but_lifetime_still_active(client, monkeypatch):
     api_says(monkeypatch, {str(uid): True})
     send(client, ev("EXPIRATION", uid))
     assert subscribed(uid) is True
+
+
+def test_api_purchase_writes_billing_and_enqueues_sync(client, monkeypatch, enqueued):
+    uid = make_user()
+    api_says(monkeypatch, {str(uid): True})
+    send(client, ev("INITIAL_PURCHASE", uid))
+    assert subscribed(uid) is True
+    assert billing(uid) == ("active", "annual", "app_store")
+    assert enqueued == [uid]
+
+
+def test_api_cancellation_marks_cancelled_but_keeps_access(client, monkeypatch):
+    uid = make_user(subscribed=True)
+    sub = _subscriber(True)
+    sub["subscriptions"]["pro_annual"]["unsubscribe_detected_at"] = "2026-10-01T00:00:00Z"
+    monkeypatch.setattr(revenuecat, "fetch_subscriber", lambda _id: sub)
+    send(client, ev("CANCELLATION", uid))
+    assert subscribed(uid) is True
+    assert billing(uid)[0] == "cancelled"
+
+
+def test_api_expiry_marks_expired(client, monkeypatch):
+    uid = make_user(subscribed=True)
+    api_says(monkeypatch, {str(uid): False})
+    send(client, ev("EXPIRATION", uid))
+    assert subscribed(uid) is False
+    assert billing(uid) == ("expired", "annual", "app_store")
+
+
+def test_fallback_leaves_billing_columns_alone(client, no_api, enqueued):
+    uid = make_user()
+    send(client, ev("INITIAL_PURCHASE", uid))
+    assert subscribed(uid) is True
+    assert billing(uid) == (None, None, None)
+    assert enqueued == [uid]   # Resend still learns plan_status from is_subscribed
+
+
+def test_no_change_event_enqueues_nothing(client, no_api, enqueued):
+    uid = make_user(subscribed=True)
+    send(client, ev("BILLING_ISSUE", uid))
+    assert enqueued == []
 
 
 def test_api_cancellation_refund_revokes(client, monkeypatch):

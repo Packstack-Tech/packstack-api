@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -42,6 +43,40 @@ REVENUECAT_WEBHOOK_SECRET = os.getenv('REVENUECAT_WEBHOOK_SECRET')
 REVENUECAT_SECRET_API_KEY = os.getenv('REVENUECAT_SECRET_API_KEY')
 # The entitlement every paid product grants, on every store.
 REVENUECAT_ENTITLEMENT_ID = os.getenv('REVENUECAT_ENTITLEMENT_ID', 'Full Access')
+
+
+def _json_env(name: str) -> dict:
+    raw = os.getenv(name)
+    if not raw or not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else {}
+    except ValueError:
+        logging.getLogger(__name__).warning("%s is not valid JSON; ignoring it", name)
+        return {}
+
+
+# Optional {"<store product id>": "annual" | "monthly" | "lifetime" | ...} for
+# products whose plan utils/user_sync.plan_for can't tell from the id or the
+# period length. The workshop backfill prints every product id it saw with
+# the plan it derived, which is the place to spot a wrong one.
+REVENUECAT_PRODUCT_PLANS = _json_env('REVENUECAT_PRODUCT_PLANS')
+
+# --- User attribute sync (utils/user_sync.py, tasks/sync_user.py) -----------
+#
+# Resend segments the sync keeps each contact in exactly one of. Created, and
+# printed, by `python -m user_attribute_sync.run setup` in the workshop.
+# Unset ids are skipped; with none set the sync only writes contact properties.
+RESEND_SEGMENT_IDS = {
+    key: value.strip()
+    for key, value in {
+        'free': os.getenv('RESEND_SEGMENT_FREE'),
+        'pro': os.getenv('RESEND_SEGMENT_PRO'),
+        'lapsed': os.getenv('RESEND_SEGMENT_LAPSED'),
+    }.items()
+    if value and value.strip()
+}
 
 
 # --- Free-tier limits -------------------------------------------------------

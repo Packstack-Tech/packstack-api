@@ -50,9 +50,12 @@ def create_contact(email: str, first_name: str = "", last_name: str = ""):
 
 def delete_contact(email: str):
     try:
-        resend.Contacts.remove({"email": email})
+        # Keyword argument: remove()'s first positional parameter is
+        # audience_id, so passing a dict there raised and the contact was
+        # never deleted.
+        resend.Contacts.remove(email=email)
     except Exception:
-        logger.warning("Failed to delete Resend contact for %s", email)
+        logger.warning("Failed to delete Resend contact for %s", email, exc_info=True)
 
 
 def send_verification_email(email, token):

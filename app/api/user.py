@@ -32,6 +32,8 @@ from utils.consts import (
 from utils.resend_email import (
     send_otp_email, send_welcome_email, create_contact, delete_contact,
 )
+from utils.user_sync import in_revenuecat
+from tasks.sync_user import enqueue_user_sync, enqueue_revenuecat_forget
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +423,7 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
         if not DEVELOPMENT:
             create_contact(email)
             send_welcome_email(email)
+            enqueue_user_sync(new_user.id)
 
         user = new_user
     else:
@@ -516,6 +519,7 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
             send_welcome_email(email)
+            enqueue_user_sync(user.id)
 
     if payload.server_auth_code and GOOGLE_CLIENT_SECRET:
         refresh_token = _exchange_google_code(payload.server_auth_code)
@@ -623,6 +627,7 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
             send_welcome_email(email)
+            enqueue_user_sync(user.id)
 
     if payload.authorization_code and APPLE_PRIVATE_KEY:
         refresh_token = _exchange_apple_code(payload.authorization_code)
@@ -653,6 +658,7 @@ def logout(response: Response):
 def delete_account(response: Response, user: User = Depends(authenticate)):
     user_id = user.id
     email = user.email
+    known_to_revenuecat = in_revenuecat(user)
 
     if user.apple_refresh_token and APPLE_PRIVATE_KEY:
         _revoke_apple_token(user.apple_refresh_token)
@@ -767,6 +773,9 @@ def delete_account(response: Response, user: User = Depends(authenticate)):
         logger.exception("Failed to delete account")
         raise HTTPException(500, "Failed to delete account.")
 
+    if known_to_revenuecat:
+        enqueue_revenuecat_forget(user_id)
+
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
 
@@ -791,9 +800,14 @@ class UserUpdate(BaseModel):
     personal_url: Optional[str] = None
 
 
+# Fields RevenueCat or Resend hold a copy of (utils/user_sync.py).
+SYNCED_PROFILE_FIELDS = ("email", "display_name")
+
+
 @route.put("")
 def update(payload: UserUpdate, user: User = Depends(authenticate)):
     fields = payload.model_dump(exclude_none=True)
+    before = {key: getattr(user, key) for key in SYNCED_PROFILE_FIELDS}
 
     for key, value in fields.items():
         setattr(user, key, value)
@@ -804,6 +818,10 @@ def update(payload: UserUpdate, user: User = Depends(authenticate)):
     except Exception:
         logger.exception("Failed to update user profile")
         raise HTTPException(400, "Unable to update profile.")
+
+    if any(getattr(user, key) != value for key, value in before.items()):
+        email_changed = user.email != before["email"]
+        enqueue_user_sync(user.id, previous_email=before["email"] if email_changed else None)
 
     return user_with_profile(user.id).to_dict()
 
