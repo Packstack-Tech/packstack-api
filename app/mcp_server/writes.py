@@ -46,6 +46,7 @@ from models.base import (
 from utils.entity_helpers import (
     resolve_brand, resolve_category, resolve_product, resolve_product_variant,
 )
+from utils.gear_lifecycle import sync_acquired_log
 from utils.item_category import get_or_create_item_category
 from models.keys import normalize_brand, normalize_name
 from utils.utils import clone_model
@@ -841,6 +842,8 @@ def register_write_tools(mcp: MCPServer) -> None:
             if condition is not None and condition != old_condition:
                 db.session.add(ItemLog(item_id=item.id, user_id=caller.user.id, event_type="condition_change",
                                        event_date=datetime.date.today(), old_condition=old_condition, new_condition=condition))
+                logs += 1
+            if acquired_date is not None and sync_acquired_log(db.session, item, caller.user.id):
                 logs += 1
             if event_type is not None:
                 db.session.add(ItemLog(item_id=item.id, user_id=caller.user.id, event_type=event_type,

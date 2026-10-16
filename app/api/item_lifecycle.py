@@ -8,7 +8,7 @@ from typing import Optional
 
 from models.base import User, Item, ItemLog
 from utils.auth import authenticate
-from utils.gear_lifecycle import replacement_score, get_benchmark
+from utils.gear_lifecycle import replacement_score, get_benchmark, sync_acquired_log
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,7 @@ def update_lifecycle(item_id: int, payload: LifecycleUpdate, user: User = Depend
         db.session.add(log_entry)
 
     try:
+        sync_acquired_log(db.session, item, user.id)
         db.session.commit()
         db.session.refresh(item)
     except Exception:

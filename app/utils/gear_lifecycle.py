@@ -2,7 +2,7 @@ import datetime
 
 from sqlalchemy import or_
 
-from models.base import Category, CategoryBenchmark
+from models.base import Category, CategoryBenchmark, ItemLog
 
 DEFAULT_BENCHMARKS = {
     "Shelter":       {"lifespan_years": 5,  "expected_nights": 300},
@@ -125,3 +125,29 @@ def replacement_score(acquired_date, condition: str | None, benchmark: dict) -> 
     if not factors:
         return None
     return round(max(factors), 3)
+
+
+def sync_acquired_log(session, item, user_id: int) -> bool:
+    """Keep the item's "acquired" activity-log entry dated to item.acquired_date.
+
+    Re-dates the earliest "acquired" entry, or adds one if there is none.
+    Returns True when an entry was added. A cleared acquired_date leaves the
+    log alone. Mirrored by api/migrations/sync_acquired_log.sql (backfill).
+    """
+    acquired = item.acquired_date
+    if not acquired:
+        return False
+    if isinstance(acquired, str):   # set from a request payload, not yet refreshed
+        acquired = datetime.date.fromisoformat(acquired)
+
+    entry = session.query(ItemLog).filter_by(
+        item_id=item.id, event_type="acquired"
+    ).order_by(ItemLog.created_at, ItemLog.id).first()
+
+    if entry is None:
+        session.add(ItemLog(item_id=item.id, user_id=user_id,
+                            event_type="acquired", event_date=acquired))
+        return True
+    if entry.event_date != acquired:
+        entry.event_date = acquired
+    return False

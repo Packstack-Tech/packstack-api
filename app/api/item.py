@@ -13,6 +13,7 @@ from models.base import User, Item, ItemLog, ItemCategory, Category, Brand, Prod
 from utils.auth import authenticate
 from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
+from utils.gear_lifecycle import sync_acquired_log
 from utils.entity_helpers import (
     resolve_item_fields, resolve_import_category, resolve_brand, resolve_product, clean_name,
 )
@@ -160,6 +161,7 @@ def create(payload: ItemType, user: User = Depends(authenticate)):
         new_item.catalog_product_id, new_item.catalog_variant_id = _derive_catalog_link(db.session, new_item)
 
     try:
+        sync_acquired_log(db.session, new_item, user.id)
         db.session.commit()
         db.session.refresh(new_item)
     except Exception:
@@ -202,7 +204,6 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
         raise HTTPException(404, "Item not found.")
 
     old_condition = item.condition
-    old_acquired_date = item.acquired_date
     old_identity = (item.brand_id, item.product_id, item.product_variant_id)
     old_catalog_product_id, old_catalog_variant_id = item.catalog_product_id, item.catalog_variant_id
 
@@ -243,14 +244,7 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
             )
             db.session.add(log)
 
-        if payload.acquired_date and not old_acquired_date:
-            log = ItemLog(
-                item_id=item.id,
-                user_id=user.id,
-                event_type="acquired",
-                event_date=payload.acquired_date,
-            )
-            db.session.add(log)
+        sync_acquired_log(db.session, item, user.id)
 
         db.session.commit()
         db.session.refresh(item)
