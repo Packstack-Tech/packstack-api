@@ -24,7 +24,7 @@ celery_app = Celery(
     "packstack",
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["tasks.enrich_product", "tasks.enrich_trip", "tasks.catalog_image", "tasks.sync_user"],
+    include=["tasks.enrich_product", "tasks.enrich_trip", "tasks.catalog_image", "tasks.sync_user", "tasks.ad_conversions"],
 )
 
 celery_app.conf.update(

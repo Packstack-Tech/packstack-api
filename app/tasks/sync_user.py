@@ -39,7 +39,8 @@ def _retry_or_report(task, exc, **context):
 
 
 @celery_app.task(bind=True, max_retries=MAX_RETRIES)
-def sync_user_attributes(self, user_id: int, previous_email: str = None):
+def sync_user_attributes(self, user_id: int, previous_email: str = None,
+                         create_missing: bool = False):
     with get_session() as session:
         user = session.get(User, user_id)
         if user is None:
@@ -51,6 +52,7 @@ def sync_user_attributes(self, user_id: int, previous_email: str = None):
                 revenuecat=_revenuecat(),
                 previous_email=previous_email,
                 segment_ids=RESEND_SEGMENT_IDS,
+                create_missing=create_missing,
             )
         except user_sync.SyncError as exc:
             _retry_or_report(self, exc, user_id=user_id)
@@ -76,13 +78,19 @@ def _configured() -> bool:
     return not DEVELOPMENT and bool(RESEND_API_KEY or REVENUECAT_SECRET_API_KEY)
 
 
-def enqueue_user_sync(user_id: int, previous_email: str = None) -> None:
+def enqueue_user_sync(user_id: int, previous_email: str = None,
+                      create_missing: bool = False) -> None:
     """Queue a full attribute push for this user. Pass previous_email when the
-    email just changed so the Resend contact moves instead of duplicating."""
+    email just changed so the Resend contact moves instead of duplicating.
+
+    create_missing is for registration only. Otherwise a user with no Resend
+    contact stays without one: a missing contact usually means it was removed
+    on purpose (bounce, list cleanup), and a profile edit or a purchase must
+    not put them back on the list."""
     if not _configured():
         return
     try:
-        sync_user_attributes.delay(user_id, previous_email)
+        sync_user_attributes.delay(user_id, previous_email, create_missing)
     except Exception:
         logger.warning("Could not enqueue attribute sync for user %s", user_id, exc_info=True)
 

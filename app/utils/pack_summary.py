@@ -52,6 +52,8 @@ def serialize_pack(pack):
         "user_id": pack.user_id,
         "trip_id": pack.trip_id,
         "title": pack.title,
+        # Echoed back on PUT so a save made against a stale copy is refused.
+        "version": pack.version,
         "items": pack.items,
         **summary,
     }

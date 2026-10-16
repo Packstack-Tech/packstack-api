@@ -3,8 +3,8 @@ import uuid
 
 from random import choice
 
-from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, JSON, DATE, String, DateTime, Text, TIMESTAMP, func, \
-    Numeric, UniqueConstraint, UUID
+from sqlalchemy import Boolean, Column, DDL, ForeignKey, Index, Integer, JSON, DATE, String, DateTime, Text, TIMESTAMP, func, \
+    Numeric, UniqueConstraint, UUID, event
 from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import relationship
@@ -521,10 +521,69 @@ class Pack(Base):
     trip_id = Column(Integer, ForeignKey("trip.id"))
     hiker_profile_id = Column(Integer, ForeignKey("hikerprofile.id"), nullable=True)
     title = Column(String(500), nullable=False)
+    # Bumped by the database on every change to the pack's title/trip or to
+    # any of its items, whichever code path made it (triggers below and in
+    # migrations/pack_version.sql). PUT /pack/{id} refuses a save made against
+    # an older version, so a stale client copy can't overwrite newer items.
+    # Never written by the ORM.
+    version = Column(Integer, nullable=False, server_default="0")
 
     # Relationships
     items = relationship("PackItem", lazy="joined",
                          cascade="all, delete-orphan")
+
+
+class PackSnapshot(Base):
+    """A pack's items as they were just before a PUT that removed some.
+
+    Recovery net for items lost to an overwrite: nothing reads it
+    automatically. No foreign key, so it outlives the pack.
+    """
+    id = Column(Integer, primary_key=True)
+    pack_id = Column(Integer, nullable=False, index=True)
+    user_id = Column(Integer, nullable=False)
+    version = Column(Integer, nullable=False)
+    title = Column(String(500))
+    items = Column(JSON, nullable=False)
+    removed_item_ids = Column(JSON, nullable=False)
+    # False when the save came from a client too old to send `version` --
+    # the saves that can't be checked for staleness.
+    versioned = Column(Boolean, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+# Keep in step with migrations/pack_version.sql, which installs the same on
+# existing databases; these run only when create_all creates the tables.
+event.listen(Pack.__table__, "after_create", DDL("""
+CREATE OR REPLACE FUNCTION pack_bump_version() RETURNS trigger AS $$
+BEGIN
+  IF (NEW.title, NEW.trip_id) IS DISTINCT FROM (OLD.title, OLD.trip_id) THEN
+    NEW.version := OLD.version + 1;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER pack_bump_version BEFORE UPDATE ON pack
+FOR EACH ROW EXECUTE FUNCTION pack_bump_version();
+""").execute_if(dialect="postgresql"))
+
+event.listen(PackItem.__table__, "after_create", DDL("""
+CREATE OR REPLACE FUNCTION packitem_bump_pack_version() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP <> 'INSERT' THEN
+    UPDATE pack SET version = version + 1 WHERE id = OLD.pack_id;
+  END IF;
+  IF TG_OP = 'INSERT' OR NEW.pack_id IS DISTINCT FROM OLD.pack_id THEN
+    UPDATE pack SET version = version + 1 WHERE id = NEW.pack_id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER packitem_bump_pack_version AFTER INSERT OR UPDATE OR DELETE ON packitem
+FOR EACH ROW EXECUTE FUNCTION packitem_bump_pack_version();
+""").execute_if(dialect="postgresql"))
 
 
 class Trip(Base):
@@ -697,3 +756,47 @@ class AuthOtp(Base):
     is_registration = Column(Boolean, default=False, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class UserAttribution(Base):
+    """The ad click / UTM-tagged visit that brought a user in, saved at
+    registration (first touch, one row per user). Feeds the Google Ads
+    conversion uploads in utils/ad_conversions.py.
+    See api/migrations/ad_attribution.sql."""
+    user_id = Column(Integer, ForeignKey("user.id"), primary_key=True)
+    gclid = Column(String(255))
+    gbraid = Column(String(255))
+    wbraid = Column(String(255))
+    utm_source = Column(String(255))
+    utm_medium = Column(String(255))
+    utm_campaign = Column(String(255))
+    utm_content = Column(String(255))
+    utm_term = Column(String(255))
+    landing_path = Column(String(255))
+    # When the visitor landed from the ad (naive UTC). Google only accepts a
+    # conversion within the click window after this.
+    clicked_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class AdConversion(Base):
+    """A conversion reported (or to be reported) to an ad platform. One row per
+    (kind, transaction_id); the transaction id is also what Google dedupes on,
+    so a re-send can never double count."""
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("user.id"), nullable=False, index=True)
+    kind = Column(String(20), nullable=False)            # sign_up | purchase
+    transaction_id = Column(String(255), nullable=False)
+    value = Column(Numeric)                              # USD; NULL for sign-ups
+    currency = Column(String(3))
+    event_at = Column(DateTime, nullable=False)          # naive UTC
+    # pending | sent | failed | skipped
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    last_error = Column(Text)
+    sent_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("kind", "transaction_id", name="uq_adconversion_kind_txn"),
+    )

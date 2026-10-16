@@ -106,6 +106,30 @@ def test_task_pushes_resend_and_revenuecat(monkeypatch):
     assert rc_session.calls[0][2]["attributes"]["$email"]["value"] == email
 
 
+def test_task_does_not_recreate_removed_contacts(monkeypatch):
+    """Outside registration, a user with no Resend contact stays without one."""
+    u = make_user()
+    email = u["email"]
+    session = FakeSession({("PATCH", f"/contacts/{email}"): FakeResponse(404, {})})
+    monkeypatch.setattr(task_mod, "_resend", lambda: ResendClient("re_x", session=session))
+    monkeypatch.setattr(task_mod, "_revenuecat", lambda: None)
+    assert task_mod.sync_user_attributes(u["id"]) == {"resend": "missing"}
+    assert [c[0] for c in session.calls] == ["PATCH"]
+
+
+def test_task_creates_contact_at_registration(monkeypatch):
+    u = make_user()
+    email = u["email"]
+    session = FakeSession({
+        ("PATCH", f"/contacts/{email}"): FakeResponse(404, {}),
+        ("POST", "/contacts"): FakeResponse(201, {"id": "c1"}),
+    })
+    monkeypatch.setattr(task_mod, "_resend", lambda: ResendClient("re_x", session=session))
+    monkeypatch.setattr(task_mod, "_revenuecat", lambda: None)
+    monkeypatch.setattr(task_mod, "RESEND_SEGMENT_IDS", {})
+    assert task_mod.sync_user_attributes(u["id"], None, True) == {"resend": "created"}
+
+
 def test_task_skips_missing_user():
     assert task_mod.sync_user_attributes(10 ** 9) == {"skipped": "no such user"}
 

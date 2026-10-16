@@ -20,7 +20,7 @@ from models.base import (
     Item, Category, ItemCategory, Kit, KitItem, Pack, PackItem,
     Post, Trip, Image, TripCondition, TripGeography,
     Comment, Follow, LikePost, LikeTrip, LikeComment, LikeImage, Reported,
-    HikerProfile,
+    HikerProfile, UserAttribution, AdConversion,
 )
 from utils.auth import authenticate, generate_jwt, set_auth_cookie
 from cryptography.hazmat.primitives import serialization
@@ -34,6 +34,8 @@ from utils.resend_email import (
 )
 from utils.user_sync import in_revenuecat
 from tasks.sync_user import enqueue_user_sync, enqueue_revenuecat_forget
+from tasks.ad_conversions import enqueue_ad_conversion
+from utils import ad_conversions
 
 logger = logging.getLogger(__name__)
 
@@ -352,12 +354,39 @@ def apply_onboarding(user: User, onboarding: Optional[OnboardingPayload]):
         return None
 
 
+class AttributionPayload(BaseModel):
+    """Ad click / UTM data the web app captured before registration
+    (app/src/lib/attribution.ts). Optional, and kept only when the call
+    creates the account. Lengths are clipped server-side."""
+    gclid: Optional[str] = None
+    gbraid: Optional[str] = None
+    wbraid: Optional[str] = None
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    utm_content: Optional[str] = None
+    utm_term: Optional[str] = None
+    landing: Optional[str] = None
+    ts: Optional[float] = None
+
+
+def apply_attribution(user: User, attribution: Optional[AttributionPayload]):
+    """New accounts only, like apply_onboarding: store where the user came
+    from and, for an ad click, queue the Google Ads sign-up conversion.
+    Never raises."""
+    if attribution is None:
+        return
+    if ad_conversions.save_attribution(db.session, user.id, attribution.model_dump()):
+        enqueue_ad_conversion(ad_conversions.record_signup(db.session, user.id))
+
+
 class VerifyOtpPayload(BaseModel):
     email: str
     otp: str
     is_registration: bool
     username: Optional[str] = None
     onboarding: Optional[OnboardingPayload] = None
+    attribution: Optional[AttributionPayload] = None
 
 
 @route.post("/verify-otp")
@@ -419,11 +448,12 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
         # Only on this branch — the account was just created here, so these
         # answers cannot belong to anyone else.
         created_profile = apply_onboarding(new_user, payload.onboarding)
+        apply_attribution(new_user, payload.attribution)
 
         if not DEVELOPMENT:
             create_contact(email)
             send_welcome_email(email)
-            enqueue_user_sync(new_user.id)
+            enqueue_user_sync(new_user.id, create_missing=True)
 
         user = new_user
     else:
@@ -451,6 +481,7 @@ class GoogleAuthPayload(BaseModel):
     credential: str
     server_auth_code: Optional[str] = None
     onboarding: Optional[OnboardingPayload] = None
+    attribution: Optional[AttributionPayload] = None
 
 
 @route.post("/google-auth")
@@ -514,12 +545,13 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
         # the account is the only reliable signal that these answers belong to
         # it — a client can't tell the two apart.
         created_profile = apply_onboarding(user, payload.onboarding)
+        apply_attribution(user, payload.attribution)
 
         if not DEVELOPMENT:
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
             send_welcome_email(email)
-            enqueue_user_sync(user.id)
+            enqueue_user_sync(user.id, create_missing=True)
 
     if payload.server_auth_code and GOOGLE_CLIENT_SECRET:
         refresh_token = _exchange_google_code(payload.server_auth_code)
@@ -545,6 +577,7 @@ class AppleAuthPayload(BaseModel):
     full_name: Optional[str] = None
     authorization_code: Optional[str] = None
     onboarding: Optional[OnboardingPayload] = None
+    attribution: Optional[AttributionPayload] = None
 
 
 @route.post("/apple-auth")
@@ -622,12 +655,13 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
         # the account is the only reliable signal that these answers belong to
         # it — a client can't tell the two apart.
         created_profile = apply_onboarding(user, payload.onboarding)
+        apply_attribution(user, payload.attribution)
 
         if not DEVELOPMENT:
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
             create_contact(email, first_name, last_name)
             send_welcome_email(email)
-            enqueue_user_sync(user.id)
+            enqueue_user_sync(user.id, create_missing=True)
 
     if payload.authorization_code and APPLE_PRIVATE_KEY:
         refresh_token = _exchange_apple_code(payload.authorization_code)
@@ -759,6 +793,10 @@ def delete_account(response: Response, user: User = Depends(authenticate)):
 
         # Hiker profiles
         db.session.query(HikerProfile).filter_by(user_id=user_id).delete(synchronize_session=False)
+
+        # Ad attribution and the conversion log
+        db.session.query(AdConversion).filter_by(user_id=user_id).delete(synchronize_session=False)
+        db.session.query(UserAttribution).filter_by(user_id=user_id).delete(synchronize_session=False)
 
         # Auth artifacts
         db.session.query(EmailVerification).filter_by(user_id=user_id).delete(synchronize_session=False)

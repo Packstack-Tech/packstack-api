@@ -1,16 +1,19 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
+from sqlalchemy.orm import noload
 from typing import List, Optional
 
-from models.base import User, Pack, PackItem, Trip
+from models.base import User, Pack, PackItem, PackSnapshot, Trip
 from utils.auth import authenticate
 from utils.consts import FREE_PACKS_PER_TRIP
 from utils.pack_summary import serialize_pack, serialize_pack_public
 from utils.overpack import overpacked_items
-from utils.pack_weight import normalize_worn
+from utils.pack_weight import effective_worn, normalize_worn
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +156,10 @@ class PackType(BaseModel):
     title: str
     trip_id: Optional[int] = None
     items: Optional[List[PackItemType]] = None
+    # The pack version this save was made against, as last read from the API.
+    # None = a client that predates versions: it can't be checked, so it saves
+    # unconditionally, as before.
+    version: Optional[int] = None
 
 
 @route.post("", status_code=201)
@@ -191,12 +198,36 @@ def create_pack(pack: PackType, user: User = Depends(authenticate)):
     return serialize_pack(new_pack)
 
 
+def _snapshot_row(pi):
+    return {"item_id": pi.item_id,
+            "quantity": float(pi.quantity) if pi.quantity is not None else None,
+            "worn_quantity": effective_worn(pi),
+            "checked": pi.checked,
+            "sort_order": float(pi.sort_order) if pi.sort_order is not None else None}
+
+
 @route.put("/{id}")
 def update_pack(id: int, payload: PackType, user: User = Depends(authenticate)):
-    pack = db.session.query(Pack).filter_by(
-        user_id=user.id, id=id).first()
+    # Locked so a concurrent save can't slip between the version check and
+    # the write. OF pack: the joined items are an outer join, which Postgres
+    # won't lock.
+    pack = (db.session.query(Pack).filter_by(user_id=user.id, id=id)
+            .with_for_update(of=Pack).populate_existing().first())
     if not pack:
         raise HTTPException(404, "Pack does not exist.")
+
+    # The client edited a copy that has since changed -- on another device, in
+    # another tab, through the MCP tools. Saving it would silently drop
+    # whatever changed. Hand back the current pack so the client can replay
+    # its edits onto it and retry.
+    if payload.version is not None and payload.version != pack.version:
+        logger.info("Pack %s save rejected: client version %s, stored %s",
+                    pack.id, payload.version, pack.version)
+        content = jsonable_encoder({"detail": "This pack changed since it was loaded.",
+                                    "code": "pack_conflict",
+                                    "pack": serialize_pack(pack)})
+        db.session.rollback()
+        return JSONResponse(status_code=409, content=content)
 
     # An omitted trip_id means "leave it alone", not "detach". Pydantic v1
     # defaults it to None, so without this an update that simply doesn't
@@ -225,6 +256,18 @@ def update_pack(id: int, payload: PackType, user: User = Depends(authenticate)):
                         checked=item.checked,
                         sort_order=item.sort_order)
 
+    # Every removal is a deliberate delete or a stale overwrite, and only the
+    # latter needs undoing; keep what was there so it can be restored.
+    removed = sorted(stored_worn.keys() - {item.item_id for item in payload.items or []})
+    if removed:
+        logger.info("Pack %s save removes %d item(s) (versioned=%s)",
+                    pack.id, len(removed), payload.version is not None)
+        db.session.add(PackSnapshot(pack_id=pack.id, user_id=user.id, version=pack.version,
+                                    title=pack.title,
+                                    items=[_snapshot_row(pi) for pi in pack.items],
+                                    removed_item_ids=removed,
+                                    versioned=payload.version is not None))
+
     try:
         pack.title = payload.title
         pack.trip_id = new_trip_id
@@ -245,6 +288,13 @@ class PackItemToggle(BaseModel):
 
 @route.put("/{pack_id}/item/{item_id}")
 def update_pack_item(pack_id: int, item_id: int, payload: PackItemToggle, user: User = Depends(authenticate)):
+    # Ownership, and the pack row locked before the item's (whose version
+    # trigger locks the pack too) -- the same order as update_pack.
+    pack = (db.session.query(Pack).filter_by(id=pack_id, user_id=user.id)
+            .options(noload(Pack.items)).with_for_update().first())
+    if not pack:
+        raise HTTPException(404, "Pack item does not exist.")
+
     item = db.session.query(PackItem).filter_by(
         pack_id=pack_id, item_id=item_id).first()
 

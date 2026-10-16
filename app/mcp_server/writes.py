@@ -117,8 +117,11 @@ def _enqueue(task, *args) -> None:
 
 
 def _own_pack(caller: Caller, pack_id: int) -> Pack:
+    # Locked before any item is touched: the item triggers lock the pack row
+    # too (to bump its version), and PUT /pack locks it first, so taking it
+    # here keeps the lock order the same and the two can't deadlock.
     pack = (db.session.query(Pack).filter_by(id=pack_id, user_id=caller.user.id)
-            .options(noload(Pack.items)).first())
+            .options(noload(Pack.items)).with_for_update().first())
     if pack is None:
         raise ToolError(f"Pack {pack_id} was not found in this account. Call get_trip to see a trip's packs and their pack_ids.")
     return pack

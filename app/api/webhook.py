@@ -5,8 +5,9 @@ from fastapi_sqlalchemy import db
 from starlette.concurrency import run_in_threadpool
 
 from models.base import User
+from tasks.ad_conversions import enqueue_ad_conversion
 from tasks.sync_user import enqueue_user_sync
-from utils import revenuecat, user_sync
+from utils import ad_conversions, revenuecat, user_sync
 from utils.consts import (
     REVENUECAT_ENTITLEMENT_ID, REVENUECAT_PRODUCT_PLANS, REVENUECAT_WEBHOOK_SECRET,
 )
@@ -127,4 +128,17 @@ async def revenuecat_webhook(request: Request):
         return {"ok": True}
 
     await _sync_user(app_user_id, event)
+    _record_ad_conversion(app_user_id, event)
     return {"ok": True}
+
+
+def _record_ad_conversion(app_user_id, event: dict):
+    """First purchases by users who came from a Google ad -> Google Ads
+    (utils/ad_conversions.py). Never fails the webhook."""
+    user_id = _int_id(app_user_id)
+    if user_id is None or event.get("type") not in ad_conversions.PURCHASE_EVENTS:
+        return
+    try:
+        enqueue_ad_conversion(ad_conversions.record_purchase_from_event(db.session, user_id, event))
+    except Exception:
+        logger.exception("Ad conversion for RevenueCat event %s failed", event.get("id"))
