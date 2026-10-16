@@ -776,6 +776,10 @@ class UserAttribution(Base):
     # When the visitor landed from the ad (naive UTC). Google only accepts a
     # conversion within the click window after this.
     clicked_at = Column(DateTime)
+    # "granted" when the visitor accepted ad measurement on the consent banner
+    # (shown in the EEA, UK and Switzerland); null everywhere else. Sent to
+    # Google with each conversion.
+    ad_consent = Column(String(20))
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
 

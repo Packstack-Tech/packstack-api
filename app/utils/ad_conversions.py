@@ -83,6 +83,8 @@ def clean_attribution(payload: Optional[Mapping[str, Any]],
         if now - CLICK_WINDOW < candidate <= now:
             clicked_at = candidate
     values["clicked_at"] = clicked_at
+    # Only the consent banner (EEA/UK/CH) sets this; anything else is ignored.
+    values["ad_consent"] = "granted" if payload.get("consent") == "granted" else None
     return values
 
 
@@ -141,6 +143,11 @@ def build_event(conversion, attribution, email: Optional[str]) -> Dict[str, Any]
         # Enhanced conversions: improves matching when the click id alone
         # can't be joined (cross-device, cookie loss).
         event["userData"] = {"userIdentifiers": [{"emailAddress": hash_email(email)}]}
+    if getattr(attribution, "ad_consent", None) == "granted":
+        # EEA/UK/CH visitors who accepted the consent banner. Visitors there
+        # who didn't accept never have a click id captured, so they never get
+        # here.
+        event["consent"] = {"adUserData": "CONSENT_GRANTED", "adPersonalization": "CONSENT_GRANTED"}
     return event
 
 

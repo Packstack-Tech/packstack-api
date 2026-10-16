@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS userattribution (
   utm_term VARCHAR(255),
   landing_path VARCHAR(255),
   clicked_at TIMESTAMP,
+  ad_consent VARCHAR(20),   -- added later; see ad_consent.sql
   created_at TIMESTAMP NOT NULL DEFAULT now()
 );
 

@@ -368,6 +368,8 @@ class AttributionPayload(BaseModel):
     utm_term: Optional[str] = None
     landing: Optional[str] = None
     ts: Optional[float] = None
+    # "granted" when the visitor accepted the EEA/UK/CH consent banner.
+    consent: Optional[str] = None
 
 
 def apply_attribution(user: User, attribution: Optional[AttributionPayload]):
@@ -418,6 +420,7 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
         raise HTTPException(401, "Invalid or expired code.")
 
     created_profile = None
+    is_new_user = False
 
     if payload.is_registration:
         username = (payload.username or record.username or "").strip()
@@ -449,6 +452,7 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
         # answers cannot belong to anyone else.
         created_profile = apply_onboarding(new_user, payload.onboarding)
         apply_attribution(new_user, payload.attribution)
+        is_new_user = True
 
         if not DEVELOPMENT:
             create_contact(email)
@@ -474,6 +478,10 @@ def verify_otp(payload: VerifyOtpPayload, response: Response):
         # Returned so a client that sent onboarding answers can seed its
         # cache instead of refetching what it just created.
         "hiker_profile": created_profile,
+        # Whether this call created the account. Google and Apple are one
+        # endpoint for sign-in and sign-up, so only the server knows; the
+        # mobile app reports sign-ups to analytics from this.
+        "is_new_user": is_new_user,
     }
 
 
@@ -506,6 +514,7 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
         raise HTTPException(status_code=401, detail="Invalid Google token.")
 
     created_profile = None
+    is_new_user = False
     google_sub = idinfo["sub"]
     email = idinfo["email"]
     name = idinfo.get("name", "")
@@ -546,6 +555,7 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
         # it — a client can't tell the two apart.
         created_profile = apply_onboarding(user, payload.onboarding)
         apply_attribution(user, payload.attribution)
+        is_new_user = True
 
         if not DEVELOPMENT:
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
@@ -569,6 +579,10 @@ def google_auth(payload: GoogleAuthPayload, response: Response):
         # Returned so a client that sent onboarding answers can seed its
         # cache instead of refetching what it just created.
         "hiker_profile": created_profile,
+        # Whether this call created the account. Google and Apple are one
+        # endpoint for sign-in and sign-up, so only the server knows; the
+        # mobile app reports sign-ups to analytics from this.
+        "is_new_user": is_new_user,
     }
 
 
@@ -620,6 +634,7 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
         raise HTTPException(status_code=401, detail="Apple token missing email.")
 
     created_profile = None
+    is_new_user = False
     user = db.session.query(User).filter_by(apple_id=apple_sub).first()
 
     if not user:
@@ -656,6 +671,7 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
         # it — a client can't tell the two apart.
         created_profile = apply_onboarding(user, payload.onboarding)
         apply_attribution(user, payload.attribution)
+        is_new_user = True
 
         if not DEVELOPMENT:
             first_name, _, last_name = name.partition(" ") if name else ("", "", "")
@@ -679,6 +695,10 @@ def apple_auth(payload: AppleAuthPayload, response: Response):
         # Returned so a client that sent onboarding answers can seed its
         # cache instead of refetching what it just created.
         "hiker_profile": created_profile,
+        # Whether this call created the account. Google and Apple are one
+        # endpoint for sign-in and sign-up, so only the server knows; the
+        # mobile app reports sign-ups to analytics from this.
+        "is_new_user": is_new_user,
     }
 
 

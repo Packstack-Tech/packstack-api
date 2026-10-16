@@ -234,6 +234,30 @@ def test_send_marks_sent_with_expected_payload(client):
     assert rows(uid)[1][1][3] == "sent"
 
 
+def test_consent_from_the_banner_is_sent_with_the_conversion(client):
+    uid = register(client, {"gclid": "CjwKCAeu", "ts": now_ms(), "consent": "granted"})
+    with db():
+        signup_id = db.session.query(AdConversion.id).filter_by(user_id=uid).scalar()
+        fake = FakeGoogle()
+        assert ac.send_conversion(db.session, signup_id, client_with(fake)) == "sent"
+    assert fake.calls[-1][1]["events"][0]["consent"] == {
+        "adUserData": "CONSENT_GRANTED", "adPersonalization": "CONSENT_GRANTED"}
+
+
+def test_no_consent_field_outside_the_banner_regions(client):
+    uid, (signup_id, _) = _conversion(client)
+    fake = FakeGoogle()
+    with db():
+        ac.send_conversion(db.session, signup_id, client_with(fake))
+        assert db.session.get(UserAttribution, uid).ad_consent is None
+    assert "consent" not in fake.calls[-1][1]["events"][0]
+
+
+def test_only_granted_counts_as_consent():
+    assert ac.clean_attribution({"gclid": "a", "consent": "yes please"}, now=NOW)["ad_consent"] is None
+    assert ac.clean_attribution({"gclid": "a", "consent": "granted"}, now=NOW)["ad_consent"] == "granted"
+
+
 def test_validate_only_leaves_row_pending(client):
     uid, (signup_id, _) = _conversion(client)
     with db():
@@ -259,3 +283,16 @@ def test_config_from_env():
     cfg = ac.GoogleAdsConfig.from_env(env.get)
     assert cfg.customer_id == "1234567890" and cfg.conversion_actions == {"sign_up": "111"}
     assert ac.GoogleAdsConfig.from_env({}.get) is None
+
+
+def test_auth_response_says_whether_the_account_is_new(client):
+    email = f"new-{secrets.token_hex(4)}@example.com"
+    for is_registration in (True, False):
+        with db():
+            db.session.add(AuthOtp(email=email, otp_code="123456", is_registration=is_registration,
+                                   expires_at=datetime.datetime.utcnow() + datetime.timedelta(minutes=5)))
+            db.session.commit()
+        r = client.post("/user/verify-otp", json={"email": email, "otp": "123456",
+                                                 "is_registration": is_registration})
+        assert r.status_code == 200, r.text
+        assert r.json()["is_new_user"] is is_registration
