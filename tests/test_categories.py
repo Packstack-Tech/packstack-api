@@ -247,3 +247,38 @@ def test_sort_endpoints_ignore_other_users_rows(client, user):
 def test_bad_names_rejected(client, user):
     assert client.post("/category", json={"name": "   "}, headers=user["headers"]).status_code == 400
     assert client.post("/category", json={"name": "x" * 51}, headers=user["headers"]).status_code == 400
+
+
+def test_bulk_category_assigns_and_uncategorizes(client, user):
+    shelter = shared("Shelter")
+    a = add_item(client, user)
+    b = add_item(client, user)
+
+    r = client.put("/item/bulk-category", json={"ids": [a["id"], b["id"]], "category_id": shelter},
+                   headers=user["headers"])
+    assert r.status_code == 200, r.text
+    [ic] = by_name(mine(client, user), "Shelter")
+    assert ic["item_count"] == 2
+
+    r = client.put("/item/bulk-category", json={"ids": [a["id"]], "category_id": None},
+                   headers=user["headers"])
+    assert r.status_code == 200, r.text
+    [ic] = by_name(mine(client, user), "Shelter")
+    assert ic["item_count"] == 1
+
+
+def test_bulk_category_ignores_other_users_items(client, user):
+    shelter = shared("Shelter")
+    theirs = add_item(client, user)
+    with db():
+        suffix = secrets.token_hex(4)
+        u = User(email=f"cat-{suffix}@example.com", username=f"cat{suffix}", email_verified=True)
+        db.session.add(u)
+        db.session.commit()
+        intruder = {"Authorization": f"Bearer {generate_jwt(u)}"}
+
+    r = client.put("/item/bulk-category", json={"ids": [theirs["id"]], "category_id": shelter},
+                   headers=intruder)
+    assert r.status_code == 200, r.text
+    with db():
+        assert db.session.get(Item, theirs["id"]).category_id is None

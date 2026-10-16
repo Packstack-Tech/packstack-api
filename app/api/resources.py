@@ -123,8 +123,13 @@ def catalog_search(
             .limit(50)
             .all()
         )
+        if not rows:
+            return []
+        brand_id = _canonical_ids(Brand, [brand]).get(brand)
+        ids = (_canonical_ids(Product, [r.product_name for r in rows], brand_id=brand_id)
+               if brand_id else {})
         return [{
-            "product_id": r.product_id,
+            "product_id": ids.get(r.product_name, r.product_id),
             "product_name": r.product_name,
         } for r in rows]
 
@@ -143,10 +148,49 @@ def catalog_search(
         .limit(20)
         .all()
     )
+    ids = _canonical_ids(Brand, [r.brand_name for r in rows])
     return [{
-        "brand_id": r.brand_id,
+        "brand_id": ids.get(r.brand_name, r.brand_id),
         "brand_name": r.brand_name,
     } for r in rows]
+
+
+def _canonical_ids(model, names: list[str], **scope) -> dict[str, int]:
+    """Legacy Brand/Product id for each catalog spelling in `names`.
+
+    The pickers send these ids straight to item create/update, so the row
+    must carry the catalog's own spelling -- never the legacy row the catalog
+    entry was researched from, which holds whatever its first user typed
+    ("riple Crown Button Down", "Tensor Insulated Regular"). An exact match
+    wins, then a case variant (lowest id); a missing one is created. Names
+    that can't be resolved are left out and the caller keeps its fallback."""
+    if not names:
+        return {}
+
+    def lookup():
+        rows = (db.session.query(model.id, model.name)
+                .filter_by(**scope)
+                .filter(func.lower(model.name).in_({n.lower() for n in names}))
+                .order_by(model.id)
+                .all())
+        exact, folded = {}, {}
+        for id_, name in rows:
+            exact.setdefault(name, id_)
+            folded.setdefault(name.lower(), id_)
+        return {n: exact.get(n) or folded.get(n.lower()) for n in names}
+
+    ids = lookup()
+    missing = [n for n, id_ in ids.items() if id_ is None]
+    if missing:
+        try:
+            db.session.add_all(model(name=n, **scope) for n in missing)
+            db.session.commit()
+        except Exception:
+            # Lost a race on the unique index; the winner's row is there now.
+            db.session.rollback()
+            logger.warning("canonical %s insert failed; re-reading", model.__name__, exc_info=True)
+        ids = lookup()
+    return {n: id_ for n, id_ in ids.items() if id_ is not None}
 
 
 def _slugify(name: str) -> str:

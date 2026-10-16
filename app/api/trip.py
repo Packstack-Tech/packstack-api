@@ -8,10 +8,10 @@ from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy import or_
-from sqlalchemy.orm import joinedload, noload
+from sqlalchemy.orm import joinedload
 
 from models.base import (
-    User, Trip, Pack, PackItem, Item,
+    User, Trip, Pack, PackItem, Item, CatalogProduct,
     TRIP_LIMIT_LIFETIME_START, trip_counts_toward_limit,
 )
 from tasks.enrich_trip import enrich_trip
@@ -99,16 +99,18 @@ PUBLIC_TRIP_FIELDS = (
 
 
 def _public_packs_query(trip_id: int):
-    """Packs for the public page, without the CatalogProduct join.
+    """Packs for the public page, with a narrow CatalogProduct join.
 
     Item eagerly joins CatalogProduct (description, JSON specs, image url) on
-    every load. The public serializer never reads it, so skipping the join
-    trims the row width and the payload for share pages.
+    every load. The public serializer only reads the display name, so load
+    just that to keep the row width and payload small for share pages.
     """
+    item = joinedload(Pack.items).joinedload(PackItem.item)
     return (
         db.session.query(Pack)
         .filter_by(trip_id=trip_id)
-        .options(joinedload(Pack.items).joinedload(PackItem.item).noload(Item.catalog_product))
+        .options(item.joinedload(Item.catalog_product).load_only(
+            CatalogProduct.product_name, CatalogProduct.status))
         .order_by(Pack.id)
     )
 

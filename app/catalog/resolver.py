@@ -86,6 +86,38 @@ def record_alias(variant: CatalogVariant, spelling: str | None) -> None:
         variant.aliases = aliases
 
 
+# ── Display ─────────────────────────────────────────────────────────────────
+
+def _live_catalog_product(item) -> CatalogProduct | None:
+    cp = getattr(item, "catalog_product", None)
+    return cp if cp is not None and cp.status in LIVE_STATUSES and cp.product_name else None
+
+
+def display_product_name(item) -> str | None:
+    """The product name to show for an item: the catalog's spelling when the
+    item is linked, else its legacy text. A legacy Product row holds whatever
+    a user first typed, so a linked item can sit on a misspelled one
+    ("riple Crown Button Down"). Mirrors productName() in the clients."""
+    cp = _live_catalog_product(item)
+    if cp is not None:
+        return cp.product_name
+    product = getattr(item, "product", None)
+    return product.name if product is not None and product.name else None
+
+
+def display_variant_name(item) -> str | None:
+    """The item's own variant text; when it has none and the catalog name is
+    shown, the catalog variant -- legacy names often carried it as a suffix
+    ("Tensor Insulated Regular") that the catalog name drops."""
+    variant = getattr(item, "product_variant", None)
+    if variant is not None and variant.name:
+        return variant.name
+    cv = getattr(item, "catalog_variant", None)
+    if _live_catalog_product(item) is not None and cv is not None:
+        return cv.name
+    return None
+
+
 # ── Weight ──────────────────────────────────────────────────────────────────
 
 def to_grams(weight, unit) -> float | None:

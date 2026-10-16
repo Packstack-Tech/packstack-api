@@ -27,6 +27,7 @@ Design notes:
 from datetime import date
 from typing import Iterable, Optional
 
+from catalog.resolver import display_product_name, display_variant_name
 from utils.overpack import overpacked_items
 from utils.pack_weight import effective_worn, pack_quantity, split_weight
 
@@ -90,12 +91,10 @@ def _md_cell(value) -> str:
 def _product_label(item) -> str:
     """'Brand Product Variant', mirroring ProductName.tsx on the public page."""
     brand = getattr(item, "brand", None)
-    product = getattr(item, "product", None)
-    variant = getattr(item, "product_variant", None)
     parts = [
         brand.name if brand and brand.name else None,
-        product.name if product and product.name else None,
-        variant.name if variant and variant.name else None,
+        display_product_name(item),
+        display_variant_name(item),
     ]
     return " ".join(p for p in parts if p)
 

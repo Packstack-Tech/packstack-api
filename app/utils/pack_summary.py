@@ -1,3 +1,4 @@
+from catalog.resolver import display_product_name, display_variant_name
 from utils.pack_weight import CONVERSION_TO_GRAMS, effective_worn, pack_quantity, split_weight  # noqa: F401
 
 
@@ -73,9 +74,15 @@ def _serialize_item_public(item):
         "category_id": item.category_id,
         "category": item.category,
         "brand": item.brand,
-        "product": item.product,
-        "product_variant": item.product_variant,
+        # Display names, not the legacy rows: the catalog's spelling when
+        # the item is linked (see catalog.resolver.display_product_name).
+        "product": _named(item.product_id, display_product_name(item)),
+        "product_variant": _named(item.product_variant_id, display_variant_name(item)),
     }
+
+
+def _named(id_, name):
+    return {"id": id_, "name": name} if name else None
 
 
 def serialize_pack_public(pack):

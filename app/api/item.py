@@ -212,7 +212,10 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
     # The catalog link is derived from brand/product/variant. If any of
     # those changed, re-derive it so a stale pairing can't survive an edit
     # (e.g. user switches "Regular" -> "Large" and keeps seeing Regular).
-    # A locked item (user detached or explicitly chose) is left alone.
+    # A detached item (locked, no link) is left alone. An explicit pick
+    # (locked, linked) was a choice about the old product, so it's dropped
+    # and re-derived like any other link -- clients show the catalog name
+    # for linked items, which would otherwise mask the user's edit.
     new_identity = (item.brand_id, item.product_id, item.product_variant_id)
     identity_changed = new_identity != old_identity
     # Clients often echo the item back whole; a catalog pair equal to what
@@ -221,7 +224,8 @@ def update(payload: ItemUpdate, user: User = Depends(authenticate)):
                      and (pick_product, pick_variant) != (old_catalog_product_id, old_catalog_variant_id))
     if explicit_pick and _apply_catalog_pick(db.session, item, pick_product, pick_variant):
         item.catalog_locked = True
-    elif identity_changed and not item.catalog_locked:
+    elif identity_changed and (not item.catalog_locked or old_catalog_product_id is not None):
+        item.catalog_locked = False
         db.session.flush()
         db.session.refresh(item)
         item.catalog_product_id, item.catalog_variant_id = _derive_catalog_link(db.session, item)
@@ -491,6 +495,25 @@ def bulk_restore(item_ids: BulkItemIds, user: User = Depends(authenticate)):
     db.session.query(Item).filter(
         Item.id.in_(ids), Item.user_id == user.id
     ).update({"removed": False}, synchronize_session="fetch")
+    db.session.commit()
+    return True
+
+
+class BulkCategory(BaseModel):
+    ids: List[int]
+    # Category id, as item create/update take it; null uncategorizes.
+    category_id: Optional[int] = None
+
+
+@route.put("/bulk-category")
+def bulk_category(payload: BulkCategory, user: User = Depends(authenticate)):
+    item_category_id = None
+    if payload.category_id:
+        item_category_id = get_or_create_item_category(
+            db.session, payload.category_id, user.id)
+    db.session.query(Item).filter(
+        Item.id.in_(payload.ids), Item.user_id == user.id
+    ).update({"category_id": item_category_id}, synchronize_session="fetch")
     db.session.commit()
     return True
 
