@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi_sqlalchemy import db
 from pydantic import BaseModel
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 
 from models.base import User, Category, Item, ItemCategory
 from utils.auth import authenticate
@@ -38,6 +39,21 @@ def _name_taken(existing: Category, user_id: int) -> HTTPException:
         "item_category_id": ic.id if ic else None,
         "name": existing.name,
     })
+
+
+def _rename_lost_race(category: Category, name: str, user_id: int):
+    """The rename hit uq_category_user_name after the clash check passed: the
+    name was taken in between. Usually the same rename sent twice (a double
+    tap) -- the first request has already made the fork, so return it as that
+    request did. Anything else is an ordinary clash."""
+    clash = find_category_by_name(db.session, name, user_id, exclude_id=category.id)
+    if not clash:
+        logger.exception("Category rename failed")
+        raise HTTPException(400, "Unable to update category.")
+    if (category.user_id is None and clash.forked_from_id == category.id
+            and clash.name == name and find_item_category(db.session, clash.id, user_id)):
+        return clash
+    raise _name_taken(clash, user_id)
 
 
 class CategoryType(BaseModel):
@@ -164,8 +180,11 @@ def update(category_id: int, payload: CategoryUpdateType, user: User = Depends(a
             raise HTTPException(404, "Category is not in your list.")
 
         fork = Category(user_id=user.id, name=name, forked_from_id=category.id)
-        db.session.add(fork)
-        db.session.flush()
+        try:
+            with db.session.begin_nested():
+                db.session.add(fork)
+        except IntegrityError:
+            return _rename_lost_race(category, name, user.id)
         item_category.category_id = fork.id
         move_benchmark(db.session, user.id, category.name, name)
         _commit("Unable to update category.")
@@ -173,7 +192,11 @@ def update(category_id: int, payload: CategoryUpdateType, user: User = Depends(a
         return fork
 
     old_name = category.name
-    category.name = name
+    try:
+        with db.session.begin_nested():
+            category.name = name
+    except IntegrityError:
+        return _rename_lost_race(category, name, user.id)
     move_benchmark(db.session, user.id, old_name, name)
     _commit("Unable to update category.")
     db.session.refresh(category)

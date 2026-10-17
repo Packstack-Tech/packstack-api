@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi_sqlalchemy import db
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import noload
 from typing import List, Optional
 
@@ -160,6 +160,27 @@ class PackType(BaseModel):
     # None = a client that predates versions: it can't be checked, so it saves
     # unconditionally, as before.
     version: Optional[int] = None
+
+    @field_validator("items")
+    @classmethod
+    def _dedupe_items(cls, items):
+        # (pack_id, item_id) is the packitem key, but clients occasionally send
+        # the same item twice (a double add). The save then flushes an UPDATE
+        # for one copy and an INSERT for the other, which fails on
+        # packitem_pkey. Keep the first copy: it's the row the client already
+        # had, with its real quantity and checked state; a re-add carries
+        # defaults.
+        if not items:
+            return items
+        seen, unique = set(), []
+        for item in items:
+            if item.item_id not in seen:
+                seen.add(item.item_id)
+                unique.append(item)
+        if len(unique) != len(items):
+            logger.warning("Pack payload repeated %d item(s); kept first copies",
+                           len(items) - len(unique))
+        return unique
 
 
 @route.post("", status_code=201)

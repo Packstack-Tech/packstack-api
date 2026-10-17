@@ -166,3 +166,23 @@ def test_item_toggle_endpoint_requires_ownership(client, user):
         headers = {"Authorization": f"Bearer {generate_jwt(other)}"}
     r = client.put(f"/pack/{pack['id']}/item/{a}", json={"checked": True}, headers=headers)
     assert r.status_code == 404, r.text
+
+
+def test_duplicate_item_in_payload_keeps_first_copy(client, user):
+    a, b = add_item(client, user, "A"), add_item(client, user, "B")
+    pack = make_pack(client, user, [a])
+    body = {"title": pack["title"], "trip_id": pack["trip_id"], "version": pack["version"],
+            "items": [{"item_id": a, "quantity": 2, "checked": True},
+                      {"item_id": b, "quantity": 1},
+                      {"item_id": a, "quantity": 1}]}
+    r = client.put(f"/pack/{pack['id']}", json=body, headers=user["headers"])
+    assert r.status_code == 200, r.text
+    assert ids(r.json()) == sorted([a, b])
+    row = next(pi for pi in r.json()["items"] if pi["item_id"] == a)
+    assert row["quantity"] == 2 and row["checked"] is True
+
+
+def test_duplicate_item_on_create_is_collapsed(client, user):
+    a = add_item(client, user, "A")
+    pack = make_pack(client, user, [a, a])
+    assert ids(pack) == [a]

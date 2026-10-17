@@ -15,7 +15,8 @@ from utils.weight import standardize_weight_unit
 from utils.item_category import get_or_create_item_category
 from utils.gear_lifecycle import sync_acquired_log
 from utils.entity_helpers import (
-    resolve_item_fields, resolve_import_category, resolve_brand, resolve_product, clean_name,
+    resolve_item_fields, resolve_import_category, resolve_brand, clean_name,
+    resolve_product as resolve_product_id,
 )
 from tasks.enrich_product import enrich_product
 from catalog.resolver import resolve_product, resolve_variant
@@ -695,7 +696,7 @@ async def import_items(file: UploadFile = File(...), user: User = Depends(authen
         product_id = None
         if brand_id and product and clean_name(product):
             try:
-                product_id = resolve_product(db.session, product, brand_id)
+                product_id = resolve_product_id(db.session, product, brand_id)
                 db.session.commit()
             except Exception:
                 logger.exception("CSV import: could not resolve product %r", product)

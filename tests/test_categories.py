@@ -131,6 +131,37 @@ def test_rename_shared_forks_and_hides_original(client, user):
     assert {"Pack", "Packs"} <= {c["name"] for c in legacy}
 
 
+def test_concurrent_shared_rename_makes_one_fork(client, user):
+    # A double-tapped save: every request passes the name check before any
+    # has inserted the fork. The losers return the winner's fork, not a 500.
+    stove = shared("Stove")
+    add_item(client, user, category_id=stove)
+    with ThreadPoolExecutor(8) as pool:
+        rs = list(pool.map(lambda _: client.put(f"/category/{stove}", json={"name": "Stoves"},
+                                                headers=user["headers"]), range(8)))
+    assert [r.status_code for r in rs] == [200] * 8, [r.text for r in rs]
+    assert len({r.json()["id"] for r in rs}) == 1
+    with db():
+        assert db.session.query(Category).filter_by(user_id=user["id"], forked_from_id=stove).count() == 1
+
+
+def test_rename_into_name_taken_after_check_is_409(client, user, monkeypatch):
+    # Another request takes the name between the clash check and the write.
+    import api.category as category_api
+    taken = client.post("/category", json={"name": "Food"}, headers=user["headers"]).json()
+    own = client.post("/category", json={"name": "Snacks"}, headers=user["headers"]).json()
+
+    real, calls = category_api.find_category_by_name, []
+    def miss_first(*a, **kw):
+        calls.append(1)
+        return None if len(calls) == 1 else real(*a, **kw)
+    monkeypatch.setattr(category_api, "find_category_by_name", miss_first)
+
+    r = client.put(f"/category/{own['category_id']}", json={"name": "food"}, headers=user["headers"])
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["category_id"] == taken["category_id"]
+
+
 def test_rename_collision_returns_409_with_merge_target(client, user):
     clothing = shared("Clothing")
     add_item(client, user, category_id=clothing)
